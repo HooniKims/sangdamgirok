@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import { GoogleGenerativeAI } from "@google/generative-ai"
+import OpenAI from "openai"
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "")
+const openai = new OpenAI({
+    apiKey: process.env.UPSTAGE_API_KEY || "",
+    baseURL: "https://api.upstage.ai/v1/solar"
+})
 
 export async function POST(request: NextRequest) {
     try {
@@ -14,14 +17,12 @@ export async function POST(request: NextRequest) {
             )
         }
 
-        if (!process.env.GEMINI_API_KEY) {
+        if (!process.env.UPSTAGE_API_KEY) {
             return NextResponse.json(
-                { error: "API 키가 설정되지 않았습니다." },
+                { error: "Upstage API 키가 설정되지 않았습니다." },
                 { status: 500 }
             )
         }
-
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" })
 
         const prompt = `당신은 학교 교사의 학생 상담 기록을 정리하는 전문가입니다.
 다음 상담 내용을 포멀하고 공식적인 문체로 정돈하여 작성해주세요.
@@ -50,9 +51,17 @@ ${content}
 
 위 형식대로 간결하게 정리해주세요:`
 
-        const result = await model.generateContent(prompt)
-        const response = await result.response
-        const summary = response.text()
+        const response = await openai.chat.completions.create({
+            model: "solar-1-mini-chat",
+            messages: [
+                {
+                    role: "user",
+                    content: prompt
+                }
+            ]
+        })
+
+        const summary = response.choices[0].message.content
 
         return NextResponse.json({ summary })
     } catch (error: any) {
