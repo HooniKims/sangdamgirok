@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react"
 import { ArrowRight, Lock, Mail, Sparkles, User } from "lucide-react"
-import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth"
-import { doc, serverTimestamp, setDoc } from "firebase/firestore"
-import { auth, db } from "@/lib/firebase"
+import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signOut } from "firebase/auth"
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore"
+import { auth, db, googleProvider } from "@/lib/firebase"
 
 function mapAuthError(code: string): string {
     switch (code) {
@@ -20,9 +20,30 @@ function mapAuthError(code: string): string {
             return "비밀번호는 6자 이상이어야 합니다."
         case "auth/too-many-requests":
             return "요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
+        case "auth/popup-closed-by-user":
+            return "구글 로그인 창이 닫혔습니다. 다시 시도해주세요."
+        case "auth/popup-blocked":
+            return "브라우저에서 팝업이 차단되었습니다. 팝업 차단을 해제해주세요."
+        case "auth/cancelled-popup-request":
+            return "구글 로그인 요청이 취소되었습니다. 다시 시도해주세요."
+        case "auth/account-exists-with-different-credential":
+            return "같은 이메일로 다른 로그인 방식이 이미 연결되어 있습니다."
+        case "auth/operation-not-allowed":
+            return "Firebase 콘솔에서 해당 로그인 방식이 비활성화되어 있습니다."
         default:
             return "인증 중 오류가 발생했습니다. 다시 시도해주세요."
     }
+}
+
+function GoogleIcon() {
+    return (
+        <svg viewBox="0 0 24 24" aria-hidden="true" style={{ width: "18px", height: "18px" }}>
+            <path d="M21.805 10.023h-9.81v3.954h5.633c-.243 1.27-.972 2.346-2.07 3.068v2.548h3.346c1.958-1.801 3.088-4.454 3.088-7.593 0-.676-.06-1.326-.187-1.977z" fill="#4285F4" />
+            <path d="M11.995 22c2.79 0 5.13-.924 6.84-2.512l-3.346-2.548c-.93.625-2.12.996-3.494.996-2.687 0-4.963-1.814-5.777-4.256H2.759v2.627A10.331 10.331 0 0 0 11.995 22z" fill="#34A853" />
+            <path d="M6.218 13.68a6.208 6.208 0 0 1 0-3.96V7.093H2.759a10.331 10.331 0 0 0 0 9.214l3.459-2.627z" fill="#FBBC05" />
+            <path d="M11.995 6.064c1.517 0 2.88.522 3.955 1.547l2.967-2.967C17.12 2.946 14.78 2 11.995 2A10.331 10.331 0 0 0 2.759 7.093L6.218 9.72c.814-2.442 3.09-3.656 5.777-3.656z" fill="#EA4335" />
+        </svg>
+    )
 }
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -60,6 +81,59 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         resetForm()
     }
 
+    const upsertTeacherProfile = async (params: {
+        uid: string
+        email: string
+        name: string
+    }) => {
+        const profileRef = doc(db, "users", params.uid)
+        const profileSnapshot = await getDoc(profileRef)
+
+        await setDoc(
+            profileRef,
+            {
+                uid: params.uid,
+                email: params.email,
+                name: params.name,
+                role: "teacher",
+                updatedAt: serverTimestamp(),
+                ...(profileSnapshot.exists() ? {} : { createdAt: serverTimestamp() }),
+            },
+            { merge: true }
+        )
+    }
+
+    const handleGoogleSignIn = async () => {
+        clearError()
+        setIsSubmitting(true)
+
+        try {
+            const credential = await signInWithPopup(auth, googleProvider)
+            const googleEmail = credential.user.email
+
+            if (!googleEmail) {
+                setError("구글 계정에서 이메일 정보를 확인할 수 없습니다.")
+                return
+            }
+
+            try {
+                await upsertTeacherProfile({
+                    uid: credential.user.uid,
+                    email: googleEmail,
+                    name: credential.user.displayName?.trim() || googleEmail.split("@")[0] || "교사",
+                })
+            } catch (profileError) {
+                await signOut(auth)
+                throw profileError
+            }
+        } catch (err: unknown) {
+            const code = typeof err === "object" && err && "code" in err ? String(err.code) : ""
+            setError(mapAuthError(code))
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         clearError()
@@ -85,13 +159,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                 const credential = await createUserWithEmailAndPassword(auth, email.trim(), password)
 
                 try {
-                    await setDoc(doc(db, "users", credential.user.uid), {
+                    await upsertTeacherProfile({
                         uid: credential.user.uid,
                         email: credential.user.email ?? email.trim(),
                         name: name.trim(),
-                        role: "teacher",
-                        createdAt: serverTimestamp(),
-                        updatedAt: serverTimestamp(),
                     })
                 } catch (profileError) {
                     await signOut(auth)
@@ -140,7 +211,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                             </button>
                         </div>
 
-                        <form onSubmit={handleSubmit} className="space-y-4">
+                        <form onSubmit={handleSubmit} className="flex flex-col" style={{ gap: "18px" }}>
                             {mode === "signup" && (
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">이름</label>
@@ -221,18 +292,39 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                                 </div>
                             )}
 
-                            {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
+                            {error && <p className="text-sm text-red-500">{error}</p>}
 
-                            <button type="submit" className="btn btn-primary w-full py-3 text-lg gap-2 group" disabled={isSubmitting}>
-                                {isSubmitting
-                                    ? mode === "login"
-                                        ? "로그인 중..."
-                                        : "가입 중..."
-                                    : mode === "login"
-                                        ? "로그인하기"
-                                        : "교사 계정 만들기"}
-                                <ArrowRight style={{ width: "20px", height: "20px" }} className="group-hover:translate-x-1 transition-transform" />
-                            </button>
+                            <div className="flex flex-col" style={{ gap: "12px", marginTop: "4px" }}>
+                                <button type="submit" className="btn btn-primary w-full py-3 text-lg gap-2 group" disabled={isSubmitting}>
+                                    {isSubmitting
+                                        ? mode === "login"
+                                            ? "로그인 중..."
+                                            : "가입 중..."
+                                        : mode === "login"
+                                            ? "로그인하기"
+                                            : "교사 계정 만들기"}
+                                    <ArrowRight style={{ width: "20px", height: "20px" }} className="group-hover:translate-x-1 transition-transform" />
+                                </button>
+
+                                {mode === "login" && (
+                                    <>
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex-1" style={{ height: "1px", backgroundColor: "#e5e7eb" }} />
+                                            <span className="text-xs text-gray-400">또는</span>
+                                            <div className="flex-1" style={{ height: "1px", backgroundColor: "#e5e7eb" }} />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary w-full py-3 gap-2"
+                                            onClick={handleGoogleSignIn}
+                                            disabled={isSubmitting}
+                                        >
+                                            <GoogleIcon />
+                                            Google로 로그인
+                                        </button>
+                                    </>
+                                )}
+                            </div>
                         </form>
                     </div>
 
