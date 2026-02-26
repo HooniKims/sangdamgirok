@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { onAuthStateChanged, signOut } from "firebase/auth"
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, Timestamp, where } from "firebase/firestore"
+import { collection, addDoc, deleteDoc, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from "date-fns"
 import { ko } from "date-fns/locale"
@@ -16,11 +16,13 @@ import {
     BarChart3,
     Clock,
     Trash2,
-    Sparkles
+    Sparkles,
+    ShieldCheck
 } from "lucide-react"
-import { Consultation } from "@/types"
+import { Consultation, TeacherProfile } from "@/types"
 import { generateWithRetry, AVAILABLE_MODELS, DEFAULT_MODEL } from "@/utils/ollamaClient"
 import { cleanMetaInfo } from "@/utils/textProcessor"
+import { buildEmailLockKey, normalizeEmail } from "@/utils/authLock"
 
 const HOLIDAYS: { [key: string]: string } = {
     "01-01": "신정", "03-01": "3.1절", "05-05": "어린이날", "06-06": "현충일",
@@ -99,6 +101,9 @@ export default function Dashboard() {
     const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL)
     const [teacherId, setTeacherId] = useState<string | null>(null)
     const [teacherEmail, setTeacherEmail] = useState("")
+    const [teacherRole, setTeacherRole] = useState<TeacherProfile["role"]>("teacher")
+    const [unlockEmail, setUnlockEmail] = useState("")
+    const [isUnlocking, setIsUnlocking] = useState(false)
 
     // Student List State
     const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null)
@@ -107,10 +112,29 @@ export default function Dashboard() {
         const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
             setTeacherId(user?.uid ?? null)
             setTeacherEmail(user?.email ?? "")
+            if (!user) {
+                setTeacherRole("teacher")
+            }
         })
 
         return () => unsubscribeAuth()
     }, [])
+
+    useEffect(() => {
+        if (!teacherId) return
+
+        const loadMyRole = async () => {
+            try {
+                const myProfile = await getDoc(doc(db, "users", teacherId))
+                const role = (myProfile.data() as TeacherProfile | undefined)?.role
+                setTeacherRole(role === "admin" ? "admin" : "teacher")
+            } catch {
+                setTeacherRole("teacher")
+            }
+        }
+
+        void loadMyRole()
+    }, [teacherId])
 
     useEffect(() => {
         if (!teacherId) {
@@ -269,6 +293,38 @@ export default function Dashboard() {
             } catch {
                 alert("삭제 중 오류가 발생했습니다.")
             }
+        }
+    }
+
+    const handleUnlockAccount = async () => {
+        if (!teacherId || teacherRole !== "admin") return
+
+        const normalized = normalizeEmail(unlockEmail)
+        if (!normalized) {
+            alert("잠금 해제할 계정 이메일을 입력해주세요.")
+            return
+        }
+
+        setIsUnlocking(true)
+        try {
+            const lockKey = await buildEmailLockKey(normalized)
+            await setDoc(
+                doc(db, "loginLocks", lockKey),
+                {
+                    failedAttempts: 0,
+                    isLocked: false,
+                    updatedAt: serverTimestamp(),
+                    unlockedAt: serverTimestamp(),
+                    unlockedBy: teacherId,
+                },
+                { merge: true }
+            )
+            setUnlockEmail("")
+            alert("계정 잠금이 해제되었습니다.")
+        } catch {
+            alert("잠금 해제 중 오류가 발생했습니다.")
+        } finally {
+            setIsUnlocking(false)
         }
     }
 
@@ -798,6 +854,34 @@ export default function Dashboard() {
                                 ))}
                             </div>
                         </div>
+
+                        {teacherRole === "admin" && (
+                            <div className="card p-6 bg-white" style={{ gridColumn: 'span 3' }}>
+                                <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
+                                    <ShieldCheck className="text-primary" style={{ width: '20px', height: '20px' }} /> 관리자 잠금 해제
+                                </h3>
+                                <p className="text-sm text-gray-500 mb-4">
+                                    이메일/비밀번호 로그인 10회 실패로 잠긴 계정을 해제합니다.
+                                </p>
+                                <div className="flex gap-3" style={{ flexWrap: 'wrap' }}>
+                                    <input
+                                        type="email"
+                                        value={unlockEmail}
+                                        onChange={e => setUnlockEmail(e.target.value)}
+                                        placeholder="잠금 해제할 계정 이메일"
+                                        className="input-field"
+                                        style={{ flex: 1, minWidth: '240px' }}
+                                    />
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={() => { void handleUnlockAccount() }}
+                                        disabled={isUnlocking}
+                                    >
+                                        {isUnlocking ? "해제 중..." : "잠금 해제"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </main>

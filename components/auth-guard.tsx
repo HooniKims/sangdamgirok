@@ -2,18 +2,22 @@
 
 import { useEffect, useState } from "react"
 import { ArrowRight, Lock, Mail, Sparkles, User } from "lucide-react"
-import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signOut } from "firebase/auth"
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore"
+import { createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut } from "firebase/auth"
+import { doc, getDoc, runTransaction, serverTimestamp, setDoc } from "firebase/firestore"
 import { auth, db, googleProvider } from "@/lib/firebase"
+import { buildEmailLockKey, LOGIN_LOCK_THRESHOLD, normalizeEmail } from "@/utils/authLock"
 
 function mapAuthError(code: string): string {
     switch (code) {
         case "auth/invalid-email":
             return "이메일 형식이 올바르지 않습니다."
         case "auth/invalid-credential":
+        case "auth/invalid-login-credentials":
         case "auth/user-not-found":
         case "auth/wrong-password":
             return "이메일 또는 비밀번호가 올바르지 않습니다."
+        case "auth/user-disabled":
+            return "이 계정은 잠겨 있습니다. 관리자에게 잠금 해제를 요청하세요."
         case "auth/email-already-in-use":
             return "이미 사용 중인 이메일입니다."
         case "auth/weak-password":
@@ -46,6 +50,11 @@ function GoogleIcon() {
     )
 }
 
+type LoginLockData = {
+    failedAttempts?: number
+    isLocked?: boolean
+}
+
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
     const [isAuthenticated, setIsAuthenticated] = useState(false)
     const [mode, setMode] = useState<"login" | "signup">("login")
@@ -54,6 +63,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     const [password, setPassword] = useState("")
     const [confirmPassword, setConfirmPassword] = useState("")
     const [error, setError] = useState("")
+    const [notice, setNotice] = useState("")
     const [isLoading, setIsLoading] = useState(true)
     const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -67,13 +77,18 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }, [])
 
     const clearError = () => setError("")
+    const clearNotice = () => setNotice("")
+    const clearMessages = () => {
+        clearError()
+        clearNotice()
+    }
 
     const resetForm = () => {
         setName("")
         setEmail("")
         setPassword("")
         setConfirmPassword("")
-        setError("")
+        clearMessages()
     }
 
     const switchMode = (nextMode: "login" | "signup") => {
@@ -88,6 +103,8 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }) => {
         const profileRef = doc(db, "users", params.uid)
         const profileSnapshot = await getDoc(profileRef)
+        const currentProfile = profileSnapshot.data() as { role?: string } | undefined
+        const nextRole = currentProfile?.role || "teacher"
 
         await setDoc(
             profileRef,
@@ -95,7 +112,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                 uid: params.uid,
                 email: params.email,
                 name: params.name,
-                role: "teacher",
+                role: nextRole,
+                isLocked: false,
+                failedLoginAttempts: 0,
                 updatedAt: serverTimestamp(),
                 ...(profileSnapshot.exists() ? {} : { createdAt: serverTimestamp() }),
             },
@@ -103,13 +122,50 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         )
     }
 
+    const getLockDocRef = async (targetEmail: string) => {
+        const lockKey = await buildEmailLockKey(targetEmail)
+        return doc(db, "loginLocks", lockKey)
+    }
+
+    const getLoginLockData = async (targetEmail: string) => {
+        const lockRef = await getLockDocRef(targetEmail)
+        const lockSnapshot = await getDoc(lockRef)
+        const lockData = (lockSnapshot.data() ?? {}) as LoginLockData
+        return {
+            lockRef,
+            failedAttempts: typeof lockData.failedAttempts === "number" ? lockData.failedAttempts : 0,
+            isLocked: Boolean(lockData.isLocked),
+        }
+    }
+
+    const handlePasswordReset = async () => {
+        clearMessages()
+        const normalizedEmail = normalizeEmail(email)
+
+        if (!normalizedEmail) {
+            setError("비밀번호를 재설정할 이메일을 먼저 입력해주세요.")
+            return
+        }
+
+        setIsSubmitting(true)
+        try {
+            await sendPasswordResetEmail(auth, normalizedEmail)
+            setNotice("비밀번호 재설정 메일을 보냈습니다. 메일함을 확인해주세요.")
+        } catch (err: unknown) {
+            const code = typeof err === "object" && err && "code" in err ? String(err.code) : ""
+            setError(mapAuthError(code))
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
     const handleGoogleSignIn = async () => {
-        clearError()
+        clearMessages()
         setIsSubmitting(true)
 
         try {
             const credential = await signInWithPopup(auth, googleProvider)
-            const googleEmail = credential.user.email
+            const googleEmail = normalizeEmail(credential.user.email || "")
 
             if (!googleEmail) {
                 setError("구글 계정에서 이메일 정보를 확인할 수 없습니다.")
@@ -122,6 +178,18 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                     email: googleEmail,
                     name: credential.user.displayName?.trim() || googleEmail.split("@")[0] || "교사",
                 })
+                const lockRef = await getLockDocRef(googleEmail)
+                await setDoc(
+                    lockRef,
+                    {
+                        failedAttempts: 0,
+                        isLocked: false,
+                        updatedAt: serverTimestamp(),
+                        unlockedAt: serverTimestamp(),
+                        unlockedBy: credential.user.uid,
+                    },
+                    { merge: true }
+                )
             } catch (profileError) {
                 await signOut(auth)
                 throw profileError
@@ -136,10 +204,17 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        clearError()
+        clearMessages()
         setIsSubmitting(true)
 
         try {
+            const normalizedEmail = normalizeEmail(email)
+
+            if (!normalizedEmail) {
+                setError("이메일을 입력해주세요.")
+                return
+            }
+
             if (mode === "signup") {
                 if (!name.trim()) {
                     setError("이름을 입력해주세요.")
@@ -156,12 +231,12 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                     return
                 }
 
-                const credential = await createUserWithEmailAndPassword(auth, email.trim(), password)
+                const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, password)
 
                 try {
                     await upsertTeacherProfile({
                         uid: credential.user.uid,
-                        email: credential.user.email ?? email.trim(),
+                        email: credential.user.email ?? normalizedEmail,
                         name: name.trim(),
                     })
                 } catch (profileError) {
@@ -169,7 +244,71 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                     throw profileError
                 }
             } else {
-                await signInWithEmailAndPassword(auth, email.trim(), password)
+                const { lockRef, isLocked } = await getLoginLockData(normalizedEmail)
+
+                if (isLocked) {
+                    setError("이 계정은 잠겨 있습니다. 관리자에게 잠금 해제를 요청하거나 비밀번호 재설정을 진행하세요.")
+                    return
+                }
+
+                try {
+                    const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password)
+                    await setDoc(
+                        lockRef,
+                        {
+                            failedAttempts: 0,
+                            isLocked: false,
+                            updatedAt: serverTimestamp(),
+                            unlockedAt: serverTimestamp(),
+                            unlockedBy: credential.user.uid,
+                        },
+                        { merge: true }
+                    )
+                } catch (loginError: unknown) {
+                    const code = typeof loginError === "object" && loginError && "code" in loginError ? String(loginError.code) : ""
+                    const isCredentialError = [
+                        "auth/invalid-credential",
+                        "auth/invalid-login-credentials",
+                        "auth/user-not-found",
+                        "auth/wrong-password",
+                    ].includes(code)
+
+                    if (!isCredentialError) {
+                        throw loginError
+                    }
+
+                    const result = await runTransaction(db, async (transaction) => {
+                        const lockSnapshot = await transaction.get(lockRef)
+                        const lockData = (lockSnapshot.data() ?? {}) as LoginLockData
+                        const currentFailedAttempts = typeof lockData.failedAttempts === "number" ? lockData.failedAttempts : 0
+                        const nextFailedAttempts = Math.min(currentFailedAttempts + 1, LOGIN_LOCK_THRESHOLD)
+                        const shouldLock = nextFailedAttempts >= LOGIN_LOCK_THRESHOLD
+
+                        transaction.set(
+                            lockRef,
+                            {
+                                failedAttempts: nextFailedAttempts,
+                                isLocked: shouldLock,
+                                updatedAt: serverTimestamp(),
+                                ...(shouldLock ? { lockedAt: serverTimestamp() } : {}),
+                            },
+                            { merge: true }
+                        )
+
+                        return {
+                            failedAttempts: nextFailedAttempts,
+                            isLocked: shouldLock,
+                        }
+                    })
+
+                    if (result.isLocked) {
+                        setError("비밀번호 10회 이상 실패로 계정이 잠겼습니다. 관리자에게 잠금 해제를 요청해주세요.")
+                    } else {
+                        const remainingAttempts = LOGIN_LOCK_THRESHOLD - result.failedAttempts
+                        setError(`이메일 또는 비밀번호가 올바르지 않습니다. ${remainingAttempts}회 더 실패하면 계정이 잠깁니다.`)
+                    }
+                    return
+                }
             }
         } catch (err: unknown) {
             const code = typeof err === "object" && err && "code" in err ? String(err.code) : ""
@@ -222,7 +361,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                                             value={name}
                                             onChange={(e) => {
                                                 setName(e.target.value)
-                                                clearError()
+                                                clearMessages()
                                             }}
                                             className="input-field"
                                             style={{ paddingLeft: "40px" }}
@@ -242,7 +381,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                                         value={email}
                                         onChange={(e) => {
                                             setEmail(e.target.value)
-                                            clearError()
+                                            clearMessages()
                                         }}
                                         className="input-field"
                                         style={{ paddingLeft: "40px" }}
@@ -261,7 +400,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                                         value={password}
                                         onChange={(e) => {
                                             setPassword(e.target.value)
-                                            clearError()
+                                            clearMessages()
                                         }}
                                         className="input-field"
                                         style={{ paddingLeft: "40px" }}
@@ -281,7 +420,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                                             value={confirmPassword}
                                             onChange={(e) => {
                                                 setConfirmPassword(e.target.value)
-                                                clearError()
+                                                clearMessages()
                                             }}
                                             className="input-field"
                                             style={{ paddingLeft: "40px" }}
@@ -292,7 +431,22 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                                 </div>
                             )}
 
+                            {mode === "login" && (
+                                <div className="flex justify-end" style={{ marginTop: "-6px" }}>
+                                    <button
+                                        type="button"
+                                        onClick={handlePasswordReset}
+                                        disabled={isSubmitting}
+                                        className="text-sm font-medium"
+                                        style={{ color: "var(--primary)" }}
+                                    >
+                                        비밀번호 재설정 메일 보내기
+                                    </button>
+                                </div>
+                            )}
+
                             {error && <p className="text-sm text-red-500">{error}</p>}
+                            {notice && <p className="text-sm text-green-600">{notice}</p>}
 
                             <div className="flex flex-col" style={{ gap: "12px", marginTop: "4px" }}>
                                 <button type="submit" className="btn btn-primary w-full py-3 text-lg gap-2 group" disabled={isSubmitting}>

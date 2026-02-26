@@ -16,8 +16,13 @@ export interface Consultation {
 export interface TeacherProfile {
     uid: string
     email: string
-    role: "teacher"
+    role: "teacher" | "admin"
     name: string
+    isLocked?: boolean
+    failedLoginAttempts?: number
+    lockedAt?: unknown
+    unlockedAt?: unknown
+    unlockedBy?: string
     createdAt?: unknown
     updatedAt?: unknown
 }

@@ -39,6 +39,8 @@ sangdam/
 │   └── dashboard.tsx             # 메인 대시보드 컴포넌트
 ├── lib/
 │   └── firebase.ts               # Firebase 설정
+├── utils/
+│   └── authLock.ts               # 로그인 잠금 키/정규화 유틸
 ├── types/
 │   └── index.ts                  # TypeScript 타입 정의
 ├── firestore.rules               # Firestore 보안 규칙
@@ -56,6 +58,9 @@ sangdam/
 - [x] Firebase Google 로그인/가입 (Popup)
 - [x] 회원가입 시 `users/{uid}` 교사 프로필 생성 (`role: "teacher"`)
 - [x] Google/이메일 로그인 공통 `users/{uid}` 프로필 upsert
+- [x] 비밀번호 10회 실패 시 계정 잠금 (`loginLocks`)
+- [x] 관리자(admin) 계정 잠금 해제 기능
+- [x] 비밀번호 재설정 메일 발송 기능
 - [x] Firebase 세션 기반 자동 로그인 상태 유지 (`onAuthStateChanged`)
 - [x] 로그인 폼 간격/여백 조정 (입력칸-버튼 간격 개선)
 - [x] 깔끔한 로그인 UI
@@ -211,6 +216,16 @@ NEXT_PUBLIC_OLLAMA_API_KEY=your_ollama_api_key
   - 로그인/회원가입 모드 모두 `Google` 버튼 노출 (`Google로 로그인` / `Google로 가입하기`)
   - Google 로그인 성공 시 `users/{uid}` 교사 프로필 upsert 처리
 
+### 11. 로그인 실패 잠금/해제 및 비밀번호 재설정 (2026-02-26)
+- **문제**: 비밀번호 반복 실패 시 계정 보호와 복구 수단이 필요함
+- **해결**:
+  - `utils/authLock.ts` 추가: 이메일 정규화 + SHA-256 잠금 키 생성
+  - 이메일/비밀번호 로그인 실패 누적 10회 시 `loginLocks` 문서 잠금 처리
+  - 잠긴 계정은 로그인 차단 및 안내 메시지 노출
+  - 로그인 화면에 `비밀번호 재설정 메일 보내기` 추가
+  - 통계 탭에 admin 전용 `관리자 잠금 해제` UI 추가
+  - `firestore.rules`에 admin 사용자 문서 접근 + `loginLocks` 규칙 반영
+
 ---
 
 ## 🚀 실행 방법
@@ -246,6 +261,8 @@ http://localhost:3000
   - 회원가입 탭 `Google로 가입하기` 버튼 추가
   - 로그인 폼 간격/여백 조정 (입력칸과 버튼 간격 개선)
   - 로컬 LLM 모델 목록에 `glm-4.7-flash` 추가
+  - 비밀번호 10회 실패 잠금 로직(`loginLocks`) 적용
+  - 관리자(admin) 잠금 해제 기능 및 비밀번호 재설정 메일 기능 추가
 
 ---
 
@@ -253,7 +270,8 @@ http://localhost:3000
 
 1. **Firestore 보안 규칙**: `firestore.rules`를 Firebase Console/CLI로 반드시 배포해야 실제 보호가 적용됩니다.
 2. **인증 시스템**: 현재 이메일/비밀번호 + Google 로그인 기반입니다. Firebase Console에서 Google 로그인 Provider가 활성화되어 있어야 합니다.
-3. **환경 변수**: `.env.local` 파일은 Git에 커밋하지 않도록 주의.
+3. **로그인 잠금 컬렉션**: `loginLocks` 컬렉션은 비로그인 상태에서도 접근이 필요하므로, 운영 시 Cloud Functions/서버 검증 방식으로 강화하는 것을 권장합니다.
+4. **환경 변수**: `.env.local` 파일은 Git에 커밋하지 않도록 주의.
 
 ---
 
@@ -261,7 +279,7 @@ http://localhost:3000
 
 - [ ] 상담 수정 기능
 - [ ] 상담 기록 내보내기 (PDF, Excel)
-- [ ] 로그인 실패 누적/계정 잠금 관리
+- [ ] 로그인 잠금 로직 서버 사이드 검증(Cloud Functions/Next API)으로 강화
 - [ ] 다크 모드 지원
 - [ ] 모바일 반응형 최적화
 - [ ] PWA 지원

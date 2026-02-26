@@ -9,10 +9,40 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function myRole() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+          : "";
+    }
+
+    function isAdmin() {
+      return isSignedIn() && myRole() == "admin";
+    }
+
     match /users/{uid} {
       allow create: if isMe(uid);
-      allow read, update: if isMe(uid);
+      allow read, update: if isMe(uid) || isAdmin();
       allow delete: if false;
+    }
+
+    // 이메일/비밀번호 로그인 실패 누적 잠금용
+    // 비로그인 상태에서도 접근이 필요해 범위를 최소 필드로 제한합니다.
+    match /loginLocks/{lockKey} {
+      allow read: if true;
+      allow create, update: if request.resource.data.keys().hasOnly([
+        "failedAttempts",
+        "isLocked",
+        "lockedAt",
+        "updatedAt",
+        "unlockedAt",
+        "unlockedBy"
+      ])
+      && request.resource.data.failedAttempts is int
+      && request.resource.data.failedAttempts >= 0
+      && request.resource.data.failedAttempts <= 10
+      && request.resource.data.isLocked is bool;
+      allow delete: if isAdmin();
     }
 
     match /consultations/{consultationId} {
