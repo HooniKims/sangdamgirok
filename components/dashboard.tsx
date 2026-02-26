@@ -80,7 +80,7 @@ export default function Dashboard() {
     const [consultations, setConsultations] = useState<Consultation[]>([])
 
     // Navigation State
-    const [activeTab, setActiveTab] = useState<"calendar" | "students" | "stats">("calendar")
+    const [activeTab, setActiveTab] = useState<"calendar" | "students" | "stats" | "admin">("calendar")
     const [viewMode, setViewMode] = useState<"list" | "write" | "search">("list")
 
     // Search State
@@ -406,10 +406,28 @@ export default function Dashboard() {
                             >
                                 통계
                             </button>
+                            {teacherRole === "admin" && (
+                                <button
+                                    onClick={() => setActiveTab("admin")}
+                                    className={`btn btn-ghost font-semibold flex items-center gap-2 ${activeTab === "admin" ? "bg-gray-100 text-primary" : "text-gray-500"}`}
+                                >
+                                    <ShieldCheck style={{ width: '16px', height: '16px' }} />
+                                    관리자
+                                </button>
+                            )}
                         </nav>
                     </div>
                     <div className="flex items-center gap-3 relative">
                         {teacherEmail && <span className="text-sm text-gray-500 hidden md:inline">{teacherEmail}</span>}
+                        {teacherRole === "admin" && (
+                            <button
+                                onClick={() => setActiveTab("admin")}
+                                className={`btn btn-ghost p-2 rounded-full ${activeTab === "admin" ? "bg-gray-100 text-primary" : "text-gray-500"}`}
+                                data-tooltip-bottom="관리자 메뉴"
+                            >
+                                <ShieldCheck style={{ width: '20px', height: '20px' }} />
+                            </button>
+                        )}
                         <button
                             onClick={toggleSearch}
                             className={`btn btn-ghost p-2 rounded-full ${isSearchOpen ? 'bg-gray-100 text-primary' : ''}`}
@@ -855,10 +873,36 @@ export default function Dashboard() {
                             </div>
                         </div>
 
-                        {teacherRole === "admin" && (
-                            <div className="card p-6 bg-white" style={{ gridColumn: 'span 3' }}>
+                    </div>
+                )}
+
+                {activeTab === "admin" && (
+                    teacherRole === "admin" ? (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in">
+                            <div className="card p-6 bg-white">
+                                <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                    <ShieldCheck className="text-primary" style={{ width: '24px', height: '24px' }} /> 관리자 권한
+                                </h2>
+                                <p className="text-gray-600 mb-4">현재 계정은 관리자 권한으로 로그인되어 있습니다.</p>
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex items-center justify-between border rounded-lg px-4 py-3">
+                                        <span className="text-sm text-gray-500">계정</span>
+                                        <span className="text-sm font-semibold text-gray-900">{teacherEmail || "-"}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between border rounded-lg px-4 py-3">
+                                        <span className="text-sm text-gray-500">권한</span>
+                                        <span className="badge badge-primary">admin</span>
+                                    </div>
+                                    <div className="flex items-center justify-between border rounded-lg px-4 py-3">
+                                        <span className="text-sm text-gray-500">잠금 정책</span>
+                                        <span className="text-sm font-semibold text-gray-900">10회 실패 시 잠금</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="card p-6 bg-white">
                                 <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
-                                    <ShieldCheck className="text-primary" style={{ width: '20px', height: '20px' }} /> 관리자 잠금 해제
+                                    <ShieldCheck className="text-primary" style={{ width: '20px', height: '20px' }} /> 계정 잠금 해제
                                 </h3>
                                 <p className="text-sm text-gray-500 mb-4">
                                     이메일/비밀번호 로그인 10회 실패로 잠긴 계정을 해제합니다.
@@ -881,8 +925,13 @@ export default function Dashboard() {
                                     </button>
                                 </div>
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    ) : (
+                        <div className="card p-8 bg-white animate-fade-in text-center">
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">관리자 권한이 필요합니다</h2>
+                            <p className="text-gray-500">현재 계정으로는 관리자 기능에 접근할 수 없습니다.</p>
+                        </div>
+                    )
                 )}
             </main>
         </div>
