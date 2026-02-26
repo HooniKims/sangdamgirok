@@ -130,10 +130,12 @@ export default function Dashboard() {
         const unsubscribeRole = onSnapshot(
             profileRef,
             (snapshot) => {
-                const role = (snapshot.data() as TeacherProfile | undefined)?.role
+                const data = snapshot.data();
+                const role = data?.role ? String(data.role).toLowerCase() : "teacher";
                 setTeacherRole(role === "admin" ? "admin" : "teacher")
             },
-            () => {
+            (error) => {
+                console.error("Role snapshot error:", error)
                 setTeacherRole("teacher")
             }
         )

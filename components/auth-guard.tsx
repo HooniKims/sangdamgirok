@@ -253,6 +253,22 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
                 try {
                     const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password)
+
+                    // 로그인 시 users 문서를 확인하고 없으면 생성하여 콘솔에서 role 변경이 가능하도록 함
+                    try {
+                        const profileRef = doc(db, "users", credential.user.uid)
+                        const profileSnapshot = await getDoc(profileRef)
+                        if (!profileSnapshot.exists()) {
+                            await upsertTeacherProfile({
+                                uid: credential.user.uid,
+                                email: credential.user.email ?? normalizedEmail,
+                                name: credential.user.displayName?.trim() || normalizedEmail.split("@")[0] || "교사",
+                            })
+                        }
+                    } catch (e) {
+                        console.error("Failed to upsert profile on login", e)
+                    }
+
                     await setDoc(
                         lockRef,
                         {
@@ -437,10 +453,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                                         type="button"
                                         onClick={handlePasswordReset}
                                         disabled={isSubmitting}
-                                        className="text-sm font-medium"
-                                        style={{ color: "var(--primary)" }}
+                                        className="text-sm text-gray-500 hover:text-primary transition-colors focus:outline-none"
+                                        style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline", textUnderlineOffset: "2px" }}
                                     >
-                                        비밀번호 재설정 메일 보내기
+                                        비밀번호를 잊으셨나요?
                                     </button>
                                 </div>
                             )}
