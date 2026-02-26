@@ -18,6 +18,8 @@ import {
     Sparkles
 } from "lucide-react"
 import { Consultation } from "@/types"
+import { generateWithRetry, AVAILABLE_MODELS, DEFAULT_MODEL } from "@/utils/ollamaClient"
+import { cleanMetaInfo } from "@/utils/textProcessor"
 
 const HOLIDAYS: { [key: string]: string } = {
     "01-01": "신정", "03-01": "3.1절", "05-05": "어린이날", "06-06": "현충일",
@@ -93,6 +95,7 @@ export default function Dashboard() {
     const [summary, setSummary] = useState("")
     const [isSummarizing, setIsSummarizing] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
+    const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL)
 
     // Student List State
     const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null)
@@ -156,15 +159,38 @@ export default function Dashboard() {
         if (!formData.content) return
         setIsSummarizing(true)
         try {
-            const fullContent = `날짜: ${format(selectedDate, "yyyy-MM-dd")} ${formData.time}\n학생: ${formData.studentName} (${formData.studentId})\n주제: ${formData.topic}\n내용: ${formData.content}`
-            const response = await fetch("/api/summarize", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ content: fullContent }),
+            const systemMessage = `당신은 학교 교사의 학생 상담 기록을 정리하는 전문가입니다.
+다음 상담 내용을 포멀하고 공식적인 문체로 정돈하여 작성해주세요.
+
+[중요 규칙]
+• 마크다운 기호(##, **, -, * 등)를 절대 사용하지 마세요
+• "상담교사"라는 단어를 절대 사용하지 마세요 (일반 교사의 상담임)
+• 원본에 없는 내용을 절대 만들어 내지 마세요
+• 작성된 내용을 그대로 포멀한 문체로 다듬기만 하세요
+
+[작성 형식]
+• 제목은 【】로 표시
+• 불릿은 • 사용
+• 중요 키워드는 「」로 강조
+
+[작성 내용 - 아래 두 섹션만 작성]
+【상담 개요】
+→ 상담 주제를 한 줄로 정리
+
+【상담 내용】
+→ 원본 내용을 포멀한 문체로 정돈하여 작성
+→ 새로운 내용 추가 금지, 원본 내용만 다듬어서 작성`
+
+            const prompt = `날짜: ${format(selectedDate, "yyyy-MM-dd")} ${formData.time}\n학생: ${formData.studentName} (${formData.studentId})\n주제: ${formData.topic}\n내용: ${formData.content}\n\n위 형식대로 간결하게 정리해주세요:`
+
+            const rawResult = await generateWithRetry({
+                systemMessage,
+                prompt,
+                model: selectedModel,
             })
-            const data = await response.json()
-            if (!response.ok) throw new Error(data.error || `서버 오류 (${response.status})`)
-            if (data.summary) setSummary(data.summary)
+
+            const processed = cleanMetaInfo(rawResult)
+            if (processed) setSummary(processed)
         } catch (error: any) {
             console.error("Summarize Error:", error)
             alert(`요약 실패: ${error.message}`)
@@ -562,6 +588,25 @@ export default function Dashboard() {
                                                     className="input-field"
                                                     style={{ height: '160px', resize: 'none' }}
                                                 />
+                                            </div>
+
+                                            {/* AI 모델 선택 */}
+                                            <div className="flex flex-col gap-2 mb-8">
+                                                <label className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                                                    <Sparkles style={{ width: '14px', height: '14px' }} className="text-primary" /> AI 모델 선택
+                                                </label>
+                                                <select
+                                                    value={selectedModel}
+                                                    onChange={e => setSelectedModel(e.target.value)}
+                                                    className="input-field"
+                                                    style={{ cursor: 'pointer' }}
+                                                >
+                                                    {AVAILABLE_MODELS.map(m => (
+                                                        <option key={m.id} value={m.id}>
+                                                            {m.name} — {m.description}
+                                                        </option>
+                                                    ))}
+                                                </select>
                                             </div>
 
                                             {summary && (
