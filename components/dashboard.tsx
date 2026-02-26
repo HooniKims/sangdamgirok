@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { onAuthStateChanged, signOut } from "firebase/auth"
-import { collection, addDoc, deleteDoc, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore"
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from "date-fns"
 import { ko } from "date-fns/locale"
@@ -121,19 +121,24 @@ export default function Dashboard() {
     }, [])
 
     useEffect(() => {
-        if (!teacherId) return
-
-        const loadMyRole = async () => {
-            try {
-                const myProfile = await getDoc(doc(db, "users", teacherId))
-                const role = (myProfile.data() as TeacherProfile | undefined)?.role
-                setTeacherRole(role === "admin" ? "admin" : "teacher")
-            } catch {
-                setTeacherRole("teacher")
-            }
+        if (!teacherId) {
+            setTeacherRole("teacher")
+            return
         }
 
-        void loadMyRole()
+        const profileRef = doc(db, "users", teacherId)
+        const unsubscribeRole = onSnapshot(
+            profileRef,
+            (snapshot) => {
+                const role = (snapshot.data() as TeacherProfile | undefined)?.role
+                setTeacherRole(role === "admin" ? "admin" : "teacher")
+            },
+            () => {
+                setTeacherRole("teacher")
+            }
+        )
+
+        return () => unsubscribeRole()
     }, [teacherId])
 
     useEffect(() => {
