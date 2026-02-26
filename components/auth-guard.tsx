@@ -306,24 +306,20 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                                     <ArrowRight style={{ width: "20px", height: "20px" }} className="group-hover:translate-x-1 transition-transform" />
                                 </button>
 
-                                {mode === "login" && (
-                                    <>
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex-1" style={{ height: "1px", backgroundColor: "#e5e7eb" }} />
-                                            <span className="text-xs text-gray-400">또는</span>
-                                            <div className="flex-1" style={{ height: "1px", backgroundColor: "#e5e7eb" }} />
-                                        </div>
-                                        <button
-                                            type="button"
-                                            className="btn btn-secondary w-full py-3 gap-2"
-                                            onClick={handleGoogleSignIn}
-                                            disabled={isSubmitting}
-                                        >
-                                            <GoogleIcon />
-                                            Google로 로그인
-                                        </button>
-                                    </>
-                                )}
+                                <div className="flex items-center gap-3">
+                                    <div className="flex-1" style={{ height: "1px", backgroundColor: "#e5e7eb" }} />
+                                    <span className="text-xs text-gray-400">또는</span>
+                                    <div className="flex-1" style={{ height: "1px", backgroundColor: "#e5e7eb" }} />
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary w-full py-3 gap-2"
+                                    onClick={handleGoogleSignIn}
+                                    disabled={isSubmitting}
+                                >
+                                    <GoogleIcon />
+                                    {mode === "signup" ? "Google로 가입하기" : "Google로 로그인"}
+                                </button>
                             </div>
                         </form>
                     </div>

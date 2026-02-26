@@ -13,7 +13,7 @@
 |------|------|
 | **프레임워크** | Next.js 16 (React 19) |
 | **스타일링** | 순수 CSS (Pure CSS) - Tailwind CSS 미사용 |
-| **인증** | Firebase Authentication (Email/Password) |
+| **인증** | Firebase Authentication (Email/Password + Google) |
 | **데이터베이스** | Firebase Firestore |
 | **AI** | 로컬 LLM API (Ollama OpenAI 호환 엔드포인트) |
 | **폰트** | Google Fonts - Outfit |
@@ -53,8 +53,11 @@ sangdam/
 ### 1. 인증 시스템 (AuthGuard)
 - [x] Firebase 이메일/비밀번호 회원가입
 - [x] Firebase 이메일/비밀번호 로그인
+- [x] Firebase Google 로그인/가입 (Popup)
 - [x] 회원가입 시 `users/{uid}` 교사 프로필 생성 (`role: "teacher"`)
+- [x] Google/이메일 로그인 공통 `users/{uid}` 프로필 upsert
 - [x] Firebase 세션 기반 자동 로그인 상태 유지 (`onAuthStateChanged`)
+- [x] 로그인 폼 간격/여백 조정 (입력칸-버튼 간격 개선)
 - [x] 깔끔한 로그인 UI
 
 ### 2. 캘린더 뷰
@@ -74,6 +77,7 @@ sangdam/
 
 ### 4. AI 요약 기능
 - [x] Ollama OpenAI 호환 API 연동
+- [x] 모델 선택 기능 (`glm-4.7-flash` 포함)
 - [x] 상담 내용 자동 정리 (포멀한 문체로 변환)
 - [x] 마크다운 미사용 - 가독성 높은 특수 기호 사용
 - [x] 출력 형식:
@@ -199,6 +203,14 @@ NEXT_PUBLIC_OLLAMA_API_KEY=your_ollama_api_key
   - 조회를 `where("teacherId", "==", uid)`로 제한
   - `firestore.rules` 추가로 본인 데이터만 읽기/쓰기 허용
 
+### 10. 로그인 UI 간격 및 Google 로그인 반영 (2026-02-26)
+- **문제**: 비밀번호 입력칸과 로그인 버튼 간격이 좁고, Google 로그인 반영 필요
+- **해결**:
+  - 로그인 폼을 `flex + gap` 구조로 조정해 입력칸/버튼 간격 재정렬
+  - Firebase `GoogleAuthProvider` 추가 및 `prompt: select_account` 설정
+  - 로그인/회원가입 모드 모두 `Google` 버튼 노출 (`Google로 로그인` / `Google로 가입하기`)
+  - Google 로그인 성공 시 `users/{uid}` 교사 프로필 upsert 처리
+
 ---
 
 ## 🚀 실행 방법
@@ -230,13 +242,17 @@ http://localhost:3000
   - 교사 프로필(`users/{uid}`) 생성 로직 추가
   - 상담 데이터 교사별 분리(`teacherId`) 적용
   - `firestore.rules` 파일 추가 및 규칙 템플릿 반영
+  - Google 로그인(Popup) 및 `GoogleAuthProvider` 적용
+  - 회원가입 탭 `Google로 가입하기` 버튼 추가
+  - 로그인 폼 간격/여백 조정 (입력칸과 버튼 간격 개선)
+  - 로컬 LLM 모델 목록에 `glm-4.7-flash` 추가
 
 ---
 
 ## ⚠️ 주의사항
 
 1. **Firestore 보안 규칙**: `firestore.rules`를 Firebase Console/CLI로 반드시 배포해야 실제 보호가 적용됩니다.
-2. **인증 시스템**: 현재 이메일/비밀번호 기반입니다. 운영 환경에서는 비밀번호 정책 강화 및 계정 잠금 정책 추가를 권장합니다.
+2. **인증 시스템**: 현재 이메일/비밀번호 + Google 로그인 기반입니다. Firebase Console에서 Google 로그인 Provider가 활성화되어 있어야 합니다.
 3. **환경 변수**: `.env.local` 파일은 Git에 커밋하지 않도록 주의.
 
 ---
@@ -245,7 +261,6 @@ http://localhost:3000
 
 - [ ] 상담 수정 기능
 - [ ] 상담 기록 내보내기 (PDF, Excel)
-- [ ] Google 소셜 로그인
 - [ ] 로그인 실패 누적/계정 잠금 관리
 - [ ] 다크 모드 지원
 - [ ] 모바일 반응형 최적화
