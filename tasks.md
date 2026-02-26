@@ -13,8 +13,9 @@
 |------|------|
 | **프레임워크** | Next.js 16 (React 19) |
 | **스타일링** | 순수 CSS (Pure CSS) - Tailwind CSS 미사용 |
+| **인증** | Firebase Authentication (Email/Password) |
 | **데이터베이스** | Firebase Firestore |
-| **AI** | Google Gemini API (gemini-2.0-flash-exp) |
+| **AI** | 로컬 LLM API (Ollama OpenAI 호환 엔드포인트) |
 | **폰트** | Google Fonts - Outfit |
 | **아이콘** | Lucide React |
 | **언어** | TypeScript |
@@ -40,7 +41,8 @@ sangdam/
 │   └── firebase.ts               # Firebase 설정
 ├── types/
 │   └── index.ts                  # TypeScript 타입 정의
-├── .env.local                    # 환경 변수 (Firebase, Gemini API 키)
+├── firestore.rules               # Firestore 보안 규칙
+├── .env.local                    # 환경 변수 (Firebase, Ollama API 키)
 └── package.json
 ```
 
@@ -49,8 +51,10 @@ sangdam/
 ## ✅ 구현된 기능
 
 ### 1. 인증 시스템 (AuthGuard)
-- [x] 비밀번호 기반 로그인 (`teacher1234`)
-- [x] localStorage를 통한 세션 유지
+- [x] Firebase 이메일/비밀번호 회원가입
+- [x] Firebase 이메일/비밀번호 로그인
+- [x] 회원가입 시 `users/{uid}` 교사 프로필 생성 (`role: "teacher"`)
+- [x] Firebase 세션 기반 자동 로그인 상태 유지 (`onAuthStateChanged`)
 - [x] 깔끔한 로그인 UI
 
 ### 2. 캘린더 뷰
@@ -66,9 +70,10 @@ sangdam/
 - [x] 상담 목록 조회
 - [x] 상담 삭제 기능
 - [x] 검색 기능 (학생 이름, 상담 내용, 주제)
+- [x] 교사 계정별 상담 데이터 분리 (`teacherId` 기준 조회/저장)
 
 ### 4. AI 요약 기능
-- [x] Google Gemini API 연동 (gemini-2.0-flash-exp)
+- [x] Ollama OpenAI 호환 API 연동
 - [x] 상담 내용 자동 정리 (포멀한 문체로 변환)
 - [x] 마크다운 미사용 - 가독성 높은 특수 기호 사용
 - [x] 출력 형식:
@@ -141,8 +146,9 @@ NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 
-# Gemini AI
-GEMINI_API_KEY=your_gemini_api_key
+# Ollama API
+NEXT_PUBLIC_OLLAMA_API_URL=https://api.alluser.site
+NEXT_PUBLIC_OLLAMA_API_KEY=your_ollama_api_key
 ```
 
 ---
@@ -185,6 +191,14 @@ GEMINI_API_KEY=your_gemini_api_key
 - **원인**: `fadeIn` 애니메이션에 `translateX(-50%)`가 포함되어 있음
 - **해결**: 애니메이션에서 `translateX` 제거, 툴팁용 애니메이션 별도 분리
 
+### 9. 교사 계정 분리 요구 대응 (2026-02-26)
+- **문제**: 공용 비밀번호 방식이라 교사별 데이터 분리가 불가능함
+- **해결**:
+  - Firebase Auth 이메일 회원가입/로그인으로 전환
+  - 상담 문서에 `teacherId`, `teacherEmail` 저장
+  - 조회를 `where("teacherId", "==", uid)`로 제한
+  - `firestore.rules` 추가로 본인 데이터만 읽기/쓰기 허용
+
 ---
 
 ## 🚀 실행 방법
@@ -198,9 +212,6 @@ npm run dev
 
 # 브라우저에서 접속
 http://localhost:3000
-
-# 로그인 비밀번호
-teacher1234
 ```
 
 ---
@@ -214,22 +225,28 @@ teacher1234
   - UI 개선: 캘린더 헤더 레이아웃, 툴팁 위치, "오늘" 버튼 크기 조정
   - AI 프롬프트 개선: 마크다운 미사용, "상담교사" 용어 금지, 원본 내용만 정리
   - CSS 애니메이션 버그 수정 (AI 요약 결과 위치 오류)
+- **2026-02-26**:
+  - Firebase 이메일 회원가입/로그인 도입 (`AuthGuard` 전면 교체)
+  - 교사 프로필(`users/{uid}`) 생성 로직 추가
+  - 상담 데이터 교사별 분리(`teacherId`) 적용
+  - `firestore.rules` 파일 추가 및 규칙 템플릿 반영
 
 ---
 
 ## ⚠️ 주의사항
 
-1. **Firebase 보안 규칙**: 현재 테스트 모드로 설정되어 있음. 프로덕션 배포 시 보안 규칙 설정 필요.
-2. **인증 시스템**: 현재 단순 비밀번호 방식. 프로덕션 배포 시 Firebase Auth 등으로 교체 권장.
+1. **Firestore 보안 규칙**: `firestore.rules`를 Firebase Console/CLI로 반드시 배포해야 실제 보호가 적용됩니다.
+2. **인증 시스템**: 현재 이메일/비밀번호 기반입니다. 운영 환경에서는 비밀번호 정책 강화 및 계정 잠금 정책 추가를 권장합니다.
 3. **환경 변수**: `.env.local` 파일은 Git에 커밋하지 않도록 주의.
 
 ---
 
 ## 📌 향후 개선 사항
 
-- [ ] Firebase Authentication 연동
 - [ ] 상담 수정 기능
 - [ ] 상담 기록 내보내기 (PDF, Excel)
+- [ ] Google 소셜 로그인
+- [ ] 로그인 실패 누적/계정 잠금 관리
 - [ ] 다크 모드 지원
 - [ ] 모바일 반응형 최적화
 - [ ] PWA 지원

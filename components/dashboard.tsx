@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { collection, addDoc, deleteDoc, doc, onSnapshot, orderBy, query, Timestamp } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import { onAuthStateChanged, signOut } from "firebase/auth"
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, Timestamp, where } from "firebase/firestore"
+import { auth, db } from "@/lib/firebase"
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from "date-fns"
 import { ko } from "date-fns/locale"
 import {
@@ -96,22 +97,40 @@ export default function Dashboard() {
     const [isSummarizing, setIsSummarizing] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL)
+    const [teacherId, setTeacherId] = useState<string | null>(null)
+    const [teacherEmail, setTeacherEmail] = useState("")
 
     // Student List State
     const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null)
 
     useEffect(() => {
-        const q = query(collection(db, "consultations"), orderBy("date", "desc"))
+        const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+            setTeacherId(user?.uid ?? null)
+            setTeacherEmail(user?.email ?? "")
+        })
+
+        return () => unsubscribeAuth()
+    }, [])
+
+    useEffect(() => {
+        if (!teacherId) {
+            setConsultations([])
+            return
+        }
+
+        const q = query(collection(db, "consultations"), where("teacherId", "==", teacherId))
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Consultation))
             data.sort((a, b) => {
-                if (a.date !== b.date) return 0;
-                return b.time.localeCompare(a.time);
-            });
+                const byDate = b.date.localeCompare(a.date)
+                if (byDate !== 0) return byDate
+                return b.time.localeCompare(a.time)
+            })
             setConsultations(data)
         })
+
         return () => unsubscribe()
-    }, [])
+    }, [teacherId])
 
     // Calendar Logic
     const days = eachDayOfInterval({ start: startOfMonth(currentMonth), end: endOfMonth(currentMonth) })
@@ -191,19 +210,23 @@ export default function Dashboard() {
 
             const processed = cleanMetaInfo(rawResult)
             if (processed) setSummary(processed)
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("Summarize Error:", error)
-            alert(`요약 실패: ${error.message}`)
+            const message = error instanceof Error ? error.message : "알 수 없는 오류"
+            alert(`요약 실패: ${message}`)
         } finally {
             setIsSummarizing(false)
         }
     }
 
     const handleSave = async (withSummary: boolean) => {
+        if (!teacherId) return alert("로그인 정보를 찾을 수 없습니다. 다시 로그인해주세요.")
         if (!formData.studentName || !formData.content) return alert("필수 정보를 입력해주세요.")
         setIsSaving(true)
         try {
             await addDoc(collection(db, "consultations"), {
+                teacherId,
+                teacherEmail,
                 date: format(selectedDate, "yyyy-MM-dd"),
                 time: formData.time,
                 studentId: formData.studentId,
@@ -217,10 +240,19 @@ export default function Dashboard() {
             setViewMode("list")
             setFormData({ ...formData, studentId: "", studentName: "", topic: "", content: "" })
             setSummary("")
-        } catch (error) {
+        } catch {
             alert("저장 실패")
         } finally {
             setIsSaving(false)
+        }
+    }
+
+    const handleLogout = async () => {
+        if (!confirm("로그아웃 하시겠습니까?")) return
+        try {
+            await signOut(auth)
+        } catch {
+            alert("로그아웃 중 오류가 발생했습니다.")
         }
     }
 
@@ -234,7 +266,7 @@ export default function Dashboard() {
             try {
                 await Promise.all(targetConsultations.map(c => deleteDoc(doc(db, "consultations", c.id!))))
                 setExpandedStudentId(null)
-            } catch (error) {
+            } catch {
                 alert("삭제 중 오류가 발생했습니다.")
             }
         }
@@ -321,6 +353,7 @@ export default function Dashboard() {
                         </nav>
                     </div>
                     <div className="flex items-center gap-3 relative">
+                        {teacherEmail && <span className="text-sm text-gray-500 hidden md:inline">{teacherEmail}</span>}
                         <button
                             onClick={toggleSearch}
                             className={`btn btn-ghost p-2 rounded-full ${isSearchOpen ? 'bg-gray-100 text-primary' : ''}`}
@@ -331,7 +364,7 @@ export default function Dashboard() {
 
                         <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--border)', margin: '0 4px' }}></div>
                         <button
-                            onClick={() => { if (confirm("로그아웃 하시겠습니까?")) { localStorage.removeItem("isAuthenticated"); window.location.reload(); } }}
+                            onClick={() => { void handleLogout() }}
                             className="btn btn-danger-ghost text-sm font-medium flex items-center gap-2"
                             data-tooltip-bottom="로그아웃"
                         >

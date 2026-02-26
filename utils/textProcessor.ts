@@ -42,7 +42,7 @@ function splitIntoSentences(text: string): string[] {
  * @returns 잘라낸 텍스트
  */
 export function truncateToCompleteSentence(text: string, targetChars: number): string {
-    let cleaned = cleanMetaInfo(text);
+    const cleaned = cleanMetaInfo(text);
     if (!cleaned) return '';
 
     const maxAllowed = Math.min(targetChars, MAX_CHARS);

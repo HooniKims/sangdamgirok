@@ -5,6 +5,7 @@ const OLLAMA_API_KEY = process.env.NEXT_PUBLIC_OLLAMA_API_KEY || "";
 // ===== 사용 가능한 모델 목록 =====
 export const AVAILABLE_MODELS = [
     { id: "qwen3:8b", name: "Qwen 3 8B (추천)", description: "균형 잡힌 성능" },
+    { id: "glm-4.7-flash", name: "GLM 4.7 Flash", description: "빠른 응답 경량 모델" },
     { id: "gemma3:12b-it-q8_0", name: "Gemma 3 12B Q8", description: "최고 품질 (13GB)" },
     { id: "gemma3:12b-it-q4_K_M", name: "Gemma 3 12B Q4", description: "고품질 (8GB)" },
     { id: "gemma3:4b-it-q4_K_M", name: "Gemma 3 4B", description: "경량 (3.3GB)" },
