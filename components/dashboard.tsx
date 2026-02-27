@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { onAuthStateChanged, signOut } from "firebase/auth"
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore"
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from "date-fns"
 import { ko } from "date-fns/locale"
@@ -17,20 +17,45 @@ import {
     Clock,
     Trash2,
     Sparkles,
-    ShieldCheck
+    ShieldCheck,
+    Download,
+    PencilLine
 } from "lucide-react"
 import { Consultation, TeacherProfile } from "@/types"
 import { generateWithRetry, AVAILABLE_MODELS, DEFAULT_MODEL } from "@/utils/ollamaClient"
 import { cleanMetaInfo } from "@/utils/textProcessor"
 import { buildEmailLockKey, normalizeEmail } from "@/utils/authLock"
+import {
+    buildBehaviorRewritePrompt,
+    buildStudentBehaviorPrompt,
+    MAX_BEHAVIOR_REWRITE_ATTEMPTS,
+    normalizeBehaviorDraftText,
+    STUDENT_BEHAVIOR_SYSTEM_MESSAGE,
+    type BehaviorEvidenceMode,
+    validateBehaviorDraft,
+} from "@/utils/behaviorRecordPrompt"
 
 const HOLIDAYS: { [key: string]: string } = {
-    "01-01": "신정", "03-01": "3.1절", "05-05": "어린이날", "06-06": "현충일",
-    "08-15": "광복절", "10-03": "개천절", "10-09": "한글날", "12-25": "크리스마스",
-    "2024-02-09": "설날", "2024-02-10": "설날", "2024-02-11": "설날", "2024-02-12": "대체공휴일",
-    "2024-09-16": "추석", "2024-09-17": "추석", "2024-09-18": "추석",
-    "2025-01-28": "설날", "2025-01-29": "설날", "2025-01-30": "설날",
-    "2025-10-06": "추석", "2025-10-07": "추석",
+    "01-01": "신정",
+    "03-01": "3.1절",
+    "05-05": "어린이날",
+    "06-06": "현충일",
+    "08-15": "광복절",
+    "10-03": "개천절",
+    "10-09": "한글날",
+    "12-25": "크리스마스",
+    "2024-02-09": "설날",
+    "2024-02-10": "설날",
+    "2024-02-11": "설날",
+    "2024-02-12": "대체공휴일",
+    "2024-09-16": "추석",
+    "2024-09-17": "추석",
+    "2024-09-18": "추석",
+    "2025-01-28": "설날",
+    "2025-01-29": "설날",
+    "2025-01-30": "설날",
+    "2025-10-06": "추석",
+    "2025-10-07": "추석",
 }
 
 // --- Markdown Renderer Component ---
@@ -74,6 +99,95 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
     );
 };
 
+type StudentSortOption = "date_desc" | "student_id_asc" | "student_id_desc"
+type BulkDeleteMode = "selected_students" | "all"
+type BehaviorGenerationMode = "selected_students" | "all"
+type BehaviorDraftStatus = "pending" | "generating" | "completed" | "failed"
+
+type StudentGroup = {
+    key: string
+    name: string
+    id: string
+    count: number
+    lastDate: string
+    lastTime: string
+    consultations: Consultation[]
+}
+
+type StudentBehaviorDraft = {
+    studentKey: string
+    studentName: string
+    studentId: string
+    consultationCount: number
+    lastDate: string
+    lastTime: string
+    content: string
+    status: BehaviorDraftStatus
+    errorMessage?: string
+    modelId?: string
+    generatedAt?: string
+}
+
+type BehaviorGenerationProgress = {
+    total: number
+    completed: number
+    failed: number
+}
+
+type ConsultationEditForm = {
+    time: string
+    studentId: string
+    studentName: string
+    topic: string
+    content: string
+}
+
+const compareConsultationByDateDesc = (a: Consultation, b: Consultation) => {
+    const byDate = b.date.localeCompare(a.date)
+    if (byDate !== 0) return byDate
+    return b.time.localeCompare(a.time)
+}
+
+const compareStudentId = (a: string, b: string) =>
+    a.localeCompare(b, "ko", { numeric: true, sensitivity: "base" })
+
+const createBehaviorDraftFromGroup = (group: StudentGroup): StudentBehaviorDraft => ({
+    studentKey: group.key,
+    studentName: group.name,
+    studentId: group.id,
+    consultationCount: group.count,
+    lastDate: group.lastDate,
+    lastTime: group.lastTime,
+    content: "",
+    status: "pending",
+})
+
+const upsertBehaviorDraft = (drafts: StudentBehaviorDraft[], nextDraft: StudentBehaviorDraft) => {
+    const targetIndex = drafts.findIndex(item => item.studentKey === nextDraft.studentKey)
+    if (targetIndex === -1) return [...drafts, nextDraft]
+    const next = [...drafts]
+    next[targetIndex] = nextDraft
+    return next
+}
+
+const getBehaviorStatusLabel = (status: BehaviorDraftStatus) => {
+    if (status === "completed") return "완료"
+    if (status === "failed") return "실패"
+    if (status === "generating") return "생성 중"
+    return "대기"
+}
+
+const buildBehaviorRuleErrorMessage = (violations: string[]) =>
+    `행발 필수 규칙을 충족하지 못했습니다: ${violations.join(" / ") || "세부 사유를 확인할 수 없습니다."}`
+
+const EMPTY_EDIT_FORM: ConsultationEditForm = {
+    time: "",
+    studentId: "",
+    studentName: "",
+    topic: "",
+    content: "",
+}
+
 export default function Dashboard() {
     const [currentMonth, setCurrentMonth] = useState(new Date())
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
@@ -107,6 +221,19 @@ export default function Dashboard() {
 
     // Student List State
     const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null)
+    const [studentSortOption, setStudentSortOption] = useState<StudentSortOption>("date_desc")
+    const [selectedStudentKeys, setSelectedStudentKeys] = useState<string[]>([])
+    const [bulkDeleteMode, setBulkDeleteMode] = useState<BulkDeleteMode>("selected_students")
+    const [behaviorGenerationMode, setBehaviorGenerationMode] = useState<BehaviorGenerationMode>("selected_students")
+    const [behaviorEvidenceMode, setBehaviorEvidenceMode] = useState<BehaviorEvidenceMode>("all_records")
+    const [selectedBehaviorConsultationMap, setSelectedBehaviorConsultationMap] = useState<Record<string, string[]>>({})
+    const [behaviorDrafts, setBehaviorDrafts] = useState<StudentBehaviorDraft[]>([])
+    const [behaviorProgress, setBehaviorProgress] = useState<BehaviorGenerationProgress>({ total: 0, completed: 0, failed: 0 })
+    const [isGeneratingBehavior, setIsGeneratingBehavior] = useState(false)
+    const [isExportingBehavior, setIsExportingBehavior] = useState(false)
+    const [editingConsultationId, setEditingConsultationId] = useState<string | null>(null)
+    const [editFormData, setEditFormData] = useState<ConsultationEditForm>(EMPTY_EDIT_FORM)
+    const [isUpdatingConsultation, setIsUpdatingConsultation] = useState(false)
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -209,7 +336,8 @@ export default function Dashboard() {
         if (!formData.content) return
         setIsSummarizing(true)
         try {
-            const systemMessage = `당신은 학교 교사의 학생 상담 기록을 정리하는 전문가입니다.
+            const systemMessage = `
+당신은 학교 교사의 학생 상담 기록을 정리하는 전문가입니다.
 다음 상담 내용을 포멀하고 공식적인 문체로 정돈하여 작성해주세요.
 
 [중요 규칙]
@@ -229,9 +357,15 @@ export default function Dashboard() {
 
 【상담 내용】
 → 원본 내용을 포멀한 문체로 정돈하여 작성
-→ 새로운 내용 추가 금지, 원본 내용만 다듬어서 작성`
+→ 새로운 내용 추가 금지, 원본 내용만 다듬어서 작성
+`.trim()
 
-            const prompt = `날짜: ${format(selectedDate, "yyyy-MM-dd")} ${formData.time}\n학생: ${formData.studentName} (${formData.studentId})\n주제: ${formData.topic}\n내용: ${formData.content}\n\n위 형식대로 간결하게 정리해주세요:`
+            const prompt = `날짜: ${format(selectedDate, "yyyy-MM-dd")} ${formData.time}
+학생: ${formData.studentName} (${formData.studentId})
+주제: ${formData.topic}
+내용: ${formData.content}
+
+위 형식대로 간결하게 정리해주세요:`
 
             const rawResult = await generateWithRetry({
                 systemMessage,
@@ -287,20 +421,482 @@ export default function Dashboard() {
         }
     }
 
-    const handleDelete = async (id: string) => {
-        if (confirm("삭제하시겠습니까?")) await deleteDoc(doc(db, "consultations", id))
+    const confirmDeleteTwice = (
+        firstMessage: string,
+        secondMessage = "정말로 삭제하시겠습니까?\n삭제한 데이터는 복구할 수 없습니다."
+    ) => {
+        if (!confirm(firstMessage)) return false
+        return confirm(secondMessage)
     }
 
-    const handleDeleteStudent = async (studentName: string) => {
-        if (confirm(`'${studentName}' 학생의 모든 상담 기록을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) {
-            const targetConsultations = consultations.filter(c => c.studentName === studentName)
-            try {
-                await Promise.all(targetConsultations.map(c => deleteDoc(doc(db, "consultations", c.id!))))
-                setExpandedStudentId(null)
-            } catch {
-                alert("삭제 중 오류가 발생했습니다.")
+    const deleteConsultationsByIds = async (ids: string[], firstMessage: string) => {
+        if (ids.length === 0) {
+            alert("삭제할 상담 기록이 없습니다.")
+            return false
+        }
+        if (!confirmDeleteTwice(firstMessage)) return false
+
+        try {
+            await Promise.all(ids.map(id => deleteDoc(doc(db, "consultations", id))))
+            return true
+        } catch {
+            alert("삭제 중 오류가 발생했습니다.")
+            return false
+        }
+    }
+
+    const handleDelete = async (id: string) => {
+        await deleteConsultationsByIds([id], "선택한 상담 기록을 삭제하시겠습니까?")
+    }
+
+    const resetConsultationEditState = () => {
+        setEditingConsultationId(null)
+        setEditFormData(EMPTY_EDIT_FORM)
+        setIsUpdatingConsultation(false)
+    }
+
+    const startConsultationEdit = (consultation: Consultation) => {
+        if (!consultation.id) {
+            alert("수정할 상담 정보를 찾을 수 없습니다.")
+            return
+        }
+
+        setEditingConsultationId(consultation.id)
+        setEditFormData({
+            time: consultation.time || format(new Date(), "HH:mm"),
+            studentId: consultation.studentId || "",
+            studentName: consultation.studentName || "",
+            topic: consultation.topic || "",
+            content: consultation.originalContent || "",
+        })
+    }
+
+    const cancelConsultationEdit = () => {
+        if (isUpdatingConsultation) return
+        resetConsultationEditState()
+    }
+
+    const handleUpdateConsultation = async (consultation: Consultation) => {
+        if (!consultation.id) {
+            alert("수정할 상담 정보를 찾을 수 없습니다.")
+            return
+        }
+
+        const nextStudentName = editFormData.studentName.trim()
+        const nextContent = editFormData.content.trim()
+        if (!nextStudentName || !nextContent) {
+            alert("학생 이름과 상담 내용은 필수 입력 항목입니다.")
+            return
+        }
+
+        const nextTopic = editFormData.topic.trim()
+        const previousContent = (consultation.originalContent || "").trim()
+        const previousTopic = (consultation.topic || "").trim()
+        const shouldResetSummary = previousContent !== nextContent || previousTopic !== nextTopic
+
+        setIsUpdatingConsultation(true)
+        try {
+            await updateDoc(doc(db, "consultations", consultation.id), {
+                time: editFormData.time || consultation.time,
+                studentId: editFormData.studentId.trim(),
+                studentName: nextStudentName,
+                topic: nextTopic,
+                originalContent: nextContent,
+                ...(shouldResetSummary ? { aiSummary: null } : {}),
+                updatedAt: Timestamp.now(),
+            })
+            resetConsultationEditState()
+            alert("상담 내용을 수정했습니다.")
+        } catch (error) {
+            console.error("Consultation update error:", error)
+            setIsUpdatingConsultation(false)
+            alert("상담 수정 중 오류가 발생했습니다.")
+        }
+    }
+
+    const handleDeleteStudent = async (student: StudentGroup) => {
+        const ids = student.consultations
+            .map(c => c.id)
+            .filter((id): id is string => Boolean(id))
+        const deleted = await deleteConsultationsByIds(
+            ids,
+            `'${student.name}' 학생의 상담 기록 ${ids.length}건을 삭제하시겠습니까?`
+        )
+        if (deleted) {
+            setExpandedStudentId(null)
+            setSelectedStudentKeys(prev => prev.filter(key => key !== student.key))
+        }
+    }
+
+    const handleDeleteSelectedStudents = async (students: StudentGroup[]) => {
+        if (students.length === 0) {
+            alert("선택된 학생이 없습니다.")
+            return
+        }
+
+        const ids = students
+            .flatMap(student => student.consultations.map(c => c.id))
+            .filter((id): id is string => Boolean(id))
+
+        const deleted = await deleteConsultationsByIds(
+            ids,
+            `선택한 학생 ${students.length}명의 상담 기록 ${ids.length}건을 삭제하시겠습니까?`
+        )
+        if (deleted) {
+            setExpandedStudentId(null)
+            setSelectedStudentKeys([])
+        }
+    }
+
+    const handleDeleteAllConsultations = async () => {
+        const ids = consultations.map(c => c.id).filter((id): id is string => Boolean(id))
+        const deleted = await deleteConsultationsByIds(
+            ids,
+            `전체 상담 기록 ${ids.length}건을 모두 삭제하시겠습니까?`
+        )
+        if (deleted) {
+            setExpandedStudentId(null)
+            setSelectedStudentKeys([])
+        }
+    }
+
+    const toggleStudentSelection = (studentKey: string) => {
+        setSelectedStudentKeys(prev =>
+            prev.includes(studentKey)
+                ? prev.filter(key => key !== studentKey)
+                : [...prev, studentKey]
+        )
+    }
+
+    const toggleBehaviorConsultationSelection = (studentKey: string, consultationId: string) => {
+        setSelectedBehaviorConsultationMap(prev => {
+            const current = prev[studentKey] ?? []
+            const nextIds = current.includes(consultationId)
+                ? current.filter(id => id !== consultationId)
+                : [...current, consultationId]
+
+            if (nextIds.length === 0) {
+                const next = { ...prev }
+                delete next[studentKey]
+                return next
+            }
+
+            return {
+                ...prev,
+                [studentKey]: nextIds,
+            }
+        })
+    }
+
+    const generateBehaviorDraftWithValidation = async ({
+        prompt,
+        model,
+    }: {
+        prompt: string;
+        model: string;
+    }): Promise<string> => {
+        let currentPrompt = prompt
+        let lastViolations: string[] = []
+
+        for (let attempt = 0; attempt <= MAX_BEHAVIOR_REWRITE_ATTEMPTS; attempt++) {
+            const raw = await generateWithRetry({
+                systemMessage: STUDENT_BEHAVIOR_SYSTEM_MESSAGE,
+                prompt: currentPrompt,
+                model,
+            })
+            const cleaned = normalizeBehaviorDraftText(cleanMetaInfo(raw))
+            const validation = validateBehaviorDraft(cleaned)
+
+            if (validation.isValid) {
+                return cleaned
+            }
+
+            lastViolations = validation.violations
+
+            if (attempt === MAX_BEHAVIOR_REWRITE_ATTEMPTS) {
+                break
+            }
+
+            currentPrompt = buildBehaviorRewritePrompt({
+                basePrompt: prompt,
+                previousDraft: cleaned,
+                violations: validation.violations,
+            })
+        }
+
+        throw new Error(buildBehaviorRuleErrorMessage(lastViolations))
+    }
+
+    const generateBehaviorDraftsForStudents = async (targets: StudentGroup[]) => {
+        if (targets.length === 0) {
+            alert("행동발달 초안을 생성할 학생이 없습니다.")
+            return
+        }
+
+        if (behaviorEvidenceMode === "selected_only") {
+            const missingStudents = targets.filter(group => {
+                const selectedIds = new Set(selectedBehaviorConsultationMap[group.key] ?? [])
+                return !group.consultations.some(item => item.id && selectedIds.has(item.id))
+            })
+
+            if (missingStudents.length > 0) {
+                const preview = missingStudents.slice(0, 5).map(group => group.name).join(", ")
+                const suffix = missingStudents.length > 5 ? ` 외 ${missingStudents.length - 5}명` : ""
+                alert(`체크한 상담만 반영 모드에서는 학생별로 최소 1건 이상 체크가 필요합니다.\n미선택 학생: ${preview}${suffix}`)
+                return
             }
         }
+
+        const targetKeys = new Set(targets.map(target => target.key))
+        setBehaviorProgress({ total: targets.length, completed: 0, failed: 0 })
+        setIsGeneratingBehavior(true)
+
+        setBehaviorDrafts(prev => {
+            const keep = prev.filter(draft => !targetKeys.has(draft.studentKey))
+            const ready = targets.map(group => {
+                const existing = prev.find(draft => draft.studentKey === group.key)
+                return {
+                    ...createBehaviorDraftFromGroup(group),
+                    content: existing?.content ?? "",
+                    status: "pending" as BehaviorDraftStatus,
+                    errorMessage: undefined,
+                    generatedAt: existing?.generatedAt,
+                    modelId: existing?.modelId,
+                }
+            })
+            return [...ready, ...keep]
+        })
+
+        let completedCount = 0
+        let failedCount = 0
+
+        for (const group of targets) {
+            setBehaviorDrafts(prev => upsertBehaviorDraft(prev, {
+                ...createBehaviorDraftFromGroup(group),
+                content: prev.find(item => item.studentKey === group.key)?.content ?? "",
+                status: "generating",
+                errorMessage: undefined,
+                modelId: selectedModel,
+            }))
+
+            try {
+                const selectedIds = new Set(selectedBehaviorConsultationMap[group.key] ?? [])
+                const consultationsForPrompt = behaviorEvidenceMode === "selected_only"
+                    ? group.consultations.filter(item => item.id && selectedIds.has(item.id))
+                    : group.consultations
+
+                const prompt = buildStudentBehaviorPrompt({
+                    studentName: group.name,
+                    studentId: group.id,
+                    consultations: consultationsForPrompt,
+                    evidenceMode: behaviorEvidenceMode,
+                    totalConsultationCount: group.consultations.length,
+                })
+                const cleaned = await generateBehaviorDraftWithValidation({
+                    prompt,
+                    model: selectedModel,
+                })
+
+                setBehaviorDrafts(prev => upsertBehaviorDraft(prev, {
+                    ...createBehaviorDraftFromGroup(group),
+                    content: cleaned,
+                    status: "completed",
+                    errorMessage: undefined,
+                    modelId: selectedModel,
+                    generatedAt: new Date().toISOString(),
+                }))
+            } catch (error: unknown) {
+                failedCount += 1
+                const message = error instanceof Error ? error.message : "알 수 없는 오류"
+
+                setBehaviorDrafts(prev => upsertBehaviorDraft(prev, {
+                    ...createBehaviorDraftFromGroup(group),
+                    content: prev.find(item => item.studentKey === group.key)?.content ?? "",
+                    status: "failed",
+                    errorMessage: message,
+                    modelId: selectedModel,
+                }))
+            } finally {
+                completedCount += 1
+                setBehaviorProgress({
+                    total: targets.length,
+                    completed: completedCount,
+                    failed: failedCount,
+                })
+            }
+        }
+
+        setIsGeneratingBehavior(false)
+
+        const successCount = targets.length - failedCount
+        alert(`행동발달 초안 생성을 완료했습니다. (성공 ${successCount} / 실패 ${failedCount})`)
+    }
+
+    const handleGenerateBehaviorDrafts = async () => {
+        if (isGeneratingBehavior) return
+        const targets = behaviorGenerationMode === "all" ? studentGroups : selectedStudentGroups
+        const targetLabel = behaviorGenerationMode === "all" ? "전체 학생" : "선택 학생"
+
+        if (!confirm(`${targetLabel} ${targets.length}명의 행동발달 초안을 생성하시겠습니까?`)) return
+        await generateBehaviorDraftsForStudents(targets)
+    }
+
+    const handleRegenerateBehaviorDraft = async (studentKey: string) => {
+        if (isGeneratingBehavior) return
+        const target = studentGroups.find(group => group.key === studentKey)
+        if (!target) {
+            alert("대상 학생 정보를 찾을 수 없습니다.")
+            return
+        }
+        await generateBehaviorDraftsForStudents([target])
+    }
+
+    const handleBehaviorDraftContentChange = (studentKey: string, content: string) => {
+        setBehaviorDrafts(prev => prev.map(draft =>
+            draft.studentKey === studentKey
+                ? { ...draft, content }
+                : draft
+        ))
+    }
+
+    const handleDownloadBehaviorExcel = async () => {
+        if (isGeneratingBehavior) {
+            alert("생성 중에는 다운로드할 수 없습니다.")
+            return
+        }
+        if (behaviorDrafts.length === 0) {
+            alert("내보낼 행동발달 초안이 없습니다.")
+            return
+        }
+
+        setIsExportingBehavior(true)
+        try {
+            const XLSX = await import("xlsx")
+
+            const rows = behaviorDrafts.map(draft => ({
+                학번: draft.studentId,
+                학생명: draft.studentName,
+                상담건수: draft.consultationCount,
+                마지막상담시각: `${draft.lastDate} ${draft.lastTime}`.trim(),
+                행동발달초안: draft.content,
+                상태: getBehaviorStatusLabel(draft.status),
+                오류메시지: draft.errorMessage ?? "",
+                모델: draft.modelId ?? "",
+                생성시각: draft.generatedAt
+                    ? format(new Date(draft.generatedAt), "yyyy-MM-dd HH:mm:ss")
+                    : "",
+            }))
+
+            const worksheet = XLSX.utils.json_to_sheet(rows)
+            worksheet["!cols"] = [
+                { wch: 12 },
+                { wch: 16 },
+                { wch: 18 },
+                { wch: 22 },
+                { wch: 70 },
+                { wch: 12 },
+                { wch: 26 },
+                { wch: 18 },
+                { wch: 22 },
+            ]
+
+            const workbook = XLSX.utils.book_new()
+            XLSX.utils.book_append_sheet(workbook, worksheet, "행동발달초안")
+            XLSX.writeFile(workbook, `행동발달초안_${format(new Date(), "yyyyMMdd_HHmm")}.xlsx`)
+        } catch (error) {
+            console.error("Behavior Excel Export Error:", error)
+            alert("엑셀 파일 내보내기에 실패했습니다.")
+        } finally {
+            setIsExportingBehavior(false)
+        }
+    }
+
+    const renderConsultationEditForm = (consultation: Consultation) => {
+        if (!consultation.id || editingConsultationId !== consultation.id) return null
+
+        return (
+            <div className="rounded-xl border p-4" style={{ backgroundColor: "#f8fafc", borderColor: "#c7d2fe" }}>
+                <div className="grid grid-cols-2 gap-4 mb-3">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-gray-700">시간</label>
+                        <input
+                            type="time"
+                            value={editFormData.time}
+                            onChange={e => setEditFormData(prev => ({ ...prev, time: e.target.value }))}
+                            className="input-field"
+                            style={{ paddingTop: "8px", paddingBottom: "8px" }}
+                            disabled={isUpdatingConsultation}
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-gray-700">주제</label>
+                        <input
+                            type="text"
+                            value={editFormData.topic}
+                            onChange={e => setEditFormData(prev => ({ ...prev, topic: e.target.value }))}
+                            className="input-field"
+                            placeholder="예: 진로, 교우관계"
+                            style={{ paddingTop: "8px", paddingBottom: "8px" }}
+                            disabled={isUpdatingConsultation}
+                        />
+                    </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 mb-3">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-gray-700">학번</label>
+                        <input
+                            type="text"
+                            value={editFormData.studentId}
+                            onChange={e => setEditFormData(prev => ({ ...prev, studentId: e.target.value.replace(/\D/g, "") }))}
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            className="input-field"
+                            style={{ paddingTop: "8px", paddingBottom: "8px" }}
+                            disabled={isUpdatingConsultation}
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-gray-700">이름 <span className="text-danger">*</span></label>
+                        <input
+                            type="text"
+                            value={editFormData.studentName}
+                            onChange={e => setEditFormData(prev => ({ ...prev, studentName: e.target.value }))}
+                            className="input-field"
+                            style={{ paddingTop: "8px", paddingBottom: "8px" }}
+                            disabled={isUpdatingConsultation}
+                        />
+                    </div>
+                </div>
+                <div className="flex flex-col gap-1 mb-3">
+                    <label className="text-xs font-semibold text-gray-700">상담 내용 <span className="text-danger">*</span></label>
+                    <textarea
+                        value={editFormData.content}
+                        onChange={e => setEditFormData(prev => ({ ...prev, content: e.target.value }))}
+                        className="input-field"
+                        style={{ minHeight: "110px", resize: "vertical" }}
+                        disabled={isUpdatingConsultation}
+                    />
+                </div>
+                <div className="flex justify-end gap-2">
+                    <button
+                        onClick={cancelConsultationEdit}
+                        className="btn btn-ghost text-sm"
+                        style={{ padding: "8px 12px" }}
+                        disabled={isUpdatingConsultation}
+                    >
+                        취소
+                    </button>
+                    <button
+                        onClick={() => { void handleUpdateConsultation(consultation) }}
+                        className="btn btn-primary text-sm"
+                        style={{ padding: "8px 12px" }}
+                        disabled={isUpdatingConsultation}
+                    >
+                        {isUpdatingConsultation ? "저장 중..." : "수정 저장"}
+                    </button>
+                </div>
+            </div>
+        )
     }
 
     const handleUnlockAccount = async () => {
@@ -351,16 +947,176 @@ export default function Dashboard() {
     const aiSummaryCount = consultations.filter(c => c.aiSummary).length
     const studentCount = new Set(consultations.map(c => c.studentName)).size
 
-    // Students List Data
-    const students = Array.from(new Set(consultations.map(c => c.studentName))).map(name => {
-        const studentConsultations = consultations.filter(c => c.studentName === name)
-        return {
-            name,
-            id: studentConsultations[0].studentId,
-            count: studentConsultations.length,
-            lastDate: studentConsultations[0].date
+    // Students List Data (학생명 + 학번 기준 그룹화, 최신 상담 우선 정렬)
+    const studentGroupsMap = consultations.reduce((acc, consultation) => {
+        const studentName = consultation.studentName?.trim() || "(이름 없음)"
+        const studentId = consultation.studentId?.trim() || "-"
+        const key = `${studentName}__${studentId}`
+
+        if (!acc[key]) {
+            acc[key] = {
+                key,
+                name: studentName,
+                id: studentId,
+                count: 0,
+                lastDate: "",
+                lastTime: "",
+                consultations: [],
+            }
         }
-    }).sort((a, b) => b.lastDate.localeCompare(a.lastDate))
+        acc[key].consultations.push(consultation)
+        return acc
+    }, {} as Record<string, StudentGroup>)
+
+    const studentGroups = Object.values(studentGroupsMap)
+        .map((group) => {
+            const sortedConsultations = [...group.consultations].sort(compareConsultationByDateDesc)
+            const latest = sortedConsultations[0]
+            return {
+                ...group,
+                consultations: sortedConsultations,
+                count: sortedConsultations.length,
+                lastDate: latest?.date ?? "",
+                lastTime: latest?.time ?? "",
+            }
+        })
+        .sort((a, b) => {
+            if (studentSortOption === "student_id_asc") {
+                return compareStudentId(a.id, b.id)
+            }
+            if (studentSortOption === "student_id_desc") {
+                return compareStudentId(b.id, a.id)
+            }
+
+            const byDate = b.lastDate.localeCompare(a.lastDate)
+            if (byDate !== 0) return byDate
+            return b.lastTime.localeCompare(a.lastTime)
+        })
+
+    const selectedStudentGroups = studentGroups.filter(group => selectedStudentKeys.includes(group.key))
+    const isAllStudentsSelected = studentGroups.length > 0 && selectedStudentKeys.length === studentGroups.length
+    const behaviorTargetGroups = behaviorGenerationMode === "all" ? studentGroups : selectedStudentGroups
+    const completedBehaviorCount = behaviorDrafts.filter(draft => draft.status === "completed").length
+    const failedBehaviorCount = behaviorDrafts.filter(draft => draft.status === "failed").length
+    const selectedBehaviorStudentCount = Object.values(selectedBehaviorConsultationMap).filter(ids => ids.length > 0).length
+    const selectedBehaviorConsultationCount = Object.values(selectedBehaviorConsultationMap).reduce((total, ids) => total + ids.length, 0)
+    const selectedOnlyMissingTargetCount = behaviorEvidenceMode === "selected_only"
+        ? behaviorTargetGroups.filter(group => {
+            const selectedIds = new Set(selectedBehaviorConsultationMap[group.key] ?? [])
+            return !group.consultations.some(item => item.id && selectedIds.has(item.id))
+        }).length
+        : 0
+
+    const studentOrderMap = useMemo(
+        () => new Map(studentGroups.map((group, index) => [group.key, index])),
+        [studentGroups]
+    )
+
+    const sortedBehaviorDrafts = useMemo(
+        () => [...behaviorDrafts].sort((a, b) => {
+            const aOrder = studentOrderMap.get(a.studentKey) ?? Number.MAX_SAFE_INTEGER
+            const bOrder = studentOrderMap.get(b.studentKey) ?? Number.MAX_SAFE_INTEGER
+            if (aOrder !== bOrder) return aOrder - bOrder
+            return compareStudentId(a.studentId, b.studentId)
+        }),
+        [behaviorDrafts, studentOrderMap]
+    )
+
+    useEffect(() => {
+        const availableKeys = new Set(
+            consultations.map(c => `${(c.studentName?.trim() || "(이름 없음)")}__${(c.studentId?.trim() || "-")}`)
+        )
+        const availableConsultationIds = new Set(
+            consultations
+                .map(c => c.id)
+                .filter((id): id is string => Boolean(id))
+        )
+        const consultationIdsByStudent = consultations.reduce((acc, consultation) => {
+            if (!consultation.id) return acc
+            const key = `${(consultation.studentName?.trim() || "(이름 없음)")}__${(consultation.studentId?.trim() || "-")}`
+            if (!acc[key]) {
+                acc[key] = new Set<string>()
+            }
+            acc[key].add(consultation.id)
+            return acc
+        }, {} as Record<string, Set<string>>)
+
+        setSelectedStudentKeys(prev => {
+            const next = prev.filter(key => availableKeys.has(key))
+            const unchanged = next.length === prev.length && next.every((key, index) => key === prev[index])
+            return unchanged ? prev : next
+        })
+
+        setSelectedBehaviorConsultationMap(prev => {
+            const next: Record<string, string[]> = {}
+
+            for (const [studentKey, ids] of Object.entries(prev)) {
+                const availableIds = consultationIdsByStudent[studentKey]
+                if (!availableIds) continue
+                const filteredIds = ids.filter(id => availableIds.has(id))
+                if (filteredIds.length > 0) {
+                    next[studentKey] = filteredIds
+                }
+            }
+
+            const prevEntries = Object.entries(prev)
+            const nextEntries = Object.entries(next)
+            const isUnchanged = prevEntries.length === nextEntries.length
+                && prevEntries.every(([key, ids]) => {
+                    const nextIds = next[key]
+                    return Boolean(nextIds)
+                        && ids.length === nextIds.length
+                        && ids.every((id, index) => id === nextIds[index])
+                })
+
+            return isUnchanged ? prev : next
+        })
+
+        if (expandedStudentId && !availableKeys.has(expandedStudentId)) {
+            setExpandedStudentId(null)
+        }
+
+        if (editingConsultationId && !availableConsultationIds.has(editingConsultationId)) {
+            setEditingConsultationId(null)
+            setEditFormData(EMPTY_EDIT_FORM)
+            setIsUpdatingConsultation(false)
+        }
+    }, [consultations, expandedStudentId, editingConsultationId])
+
+    useEffect(() => {
+        const groupMap = new Map(studentGroups.map(group => [group.key, group]))
+
+        setBehaviorDrafts(prev => {
+            let changed = false
+            const next = prev
+                .filter(draft => groupMap.has(draft.studentKey))
+                .map(draft => {
+                    const group = groupMap.get(draft.studentKey)!
+                    if (
+                        draft.studentName === group.name &&
+                        draft.studentId === group.id &&
+                        draft.consultationCount === group.count &&
+                        draft.lastDate === group.lastDate &&
+                        draft.lastTime === group.lastTime
+                    ) {
+                        return draft
+                    }
+
+                    changed = true
+                    return {
+                        ...draft,
+                        studentName: group.name,
+                        studentId: group.id,
+                        consultationCount: group.count,
+                        lastDate: group.lastDate,
+                        lastTime: group.lastTime,
+                    }
+                })
+
+            if (next.length !== prev.length) changed = true
+            return changed ? next : prev
+        })
+    }, [studentGroups])
 
     // Monthly Stats
     const getMonthlyStats = () => {
@@ -481,7 +1237,7 @@ export default function Dashboard() {
                         <div className="lg:col-span-4 flex flex-col gap-6">
                             <div className="card p-6 bg-white">
                                 <div className="flex items-center justify-between mb-6">
-                                    <h2 className="text-xl font-bold text-gray-900" style={{ whiteSpace: 'nowrap' }}>{format(currentMonth, "yyyy년 M월", { locale: ko })}</h2>
+                                    <h2 className="text-xl font-bold text-gray-900" style={{ whiteSpace: 'nowrap' }}>{format(currentMonth, "yyyy MMM", { locale: ko })}</h2>
                                     <div className="flex items-center gap-2">
                                         <button
                                             onClick={handleTodayClick}
@@ -496,7 +1252,7 @@ export default function Dashboard() {
                                 </div>
 
                                 <div className="calendar-grid mb-2">
-                                    {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
+                                    {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => (
                                         <div key={d} className={`text-center text-xs font-semibold py-2 ${i === 0 ? 'text-red' : i === 6 ? 'text-blue' : 'text-gray-500'}`}>{d}</div>
                                     ))}
                                 </div>
@@ -537,15 +1293,15 @@ export default function Dashboard() {
                             {/* Mini Stats */}
                             <div className="card p-6 text-white" style={{ backgroundColor: '#312e81', position: 'relative', overflow: 'hidden' }}>
                                 <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '128px', height: '128px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '50%', filter: 'blur(40px)' }}></div>
-                                <h3 className="text-lg font-bold mb-4" style={{ position: 'relative', zIndex: 1 }}>이번 달 상담 현황</h3>
+                                <h3 className="text-lg font-bold mb-4" style={{ position: 'relative', zIndex: 1 }}>이번 달 통계</h3>
                                 <div className="grid grid-cols-2 gap-4" style={{ position: 'relative', zIndex: 1 }}>
                                     <div>
-                                        <div className="text-xs font-medium mb-1" style={{ color: '#a5b4fc' }}>총 상담</div>
-                                        <div className="text-2xl font-bold">{consultations.filter(c => c.date.startsWith(format(currentMonth, "yyyy-MM"))).length}건</div>
+                                        <div className="text-xs font-medium mb-1" style={{ color: '#a5b4fc' }}>총 상담 건수</div>
+                                        <div className="text-2xl font-bold">{consultations.filter(c => c.date.startsWith(format(currentMonth, "yyyy-MM"))).length}</div>
                                     </div>
                                     <div>
-                                        <div className="text-xs font-medium mb-1" style={{ color: '#a5b4fc' }}>AI 요약</div>
-                                        <div className="text-2xl font-bold">{consultations.filter(c => c.date.startsWith(format(currentMonth, "yyyy-MM")) && c.aiSummary).length}건</div>
+                                        <div className="text-xs font-medium mb-1" style={{ color: '#a5b4fc' }}>AI 요약 건수</div>
+                                        <div className="text-2xl font-bold">{consultations.filter(c => c.date.startsWith(format(currentMonth, "yyyy-MM")) && c.aiSummary).length}</div>
                                     </div>
                                 </div>
                             </div>
@@ -570,8 +1326,8 @@ export default function Dashboard() {
                                         </div>
                                         <p className="text-gray-500 text-sm">
                                             {viewMode === "search"
-                                                ? `"${searchQuery}"에 대한 검색 결과가 ${displayList.length}건 있습니다.`
-                                                : "상담 일정을 확인하고 관리하세요."}
+                                                ? `"${searchQuery}" 검색 결과 ${displayList.length}건`
+                                                : "선택한 날짜의 상담 기록을 확인하거나 새 상담을 작성할 수 있습니다."}
                                         </p>
                                     </div>
 
@@ -581,14 +1337,14 @@ export default function Dashboard() {
                                             className={`btn btn-ghost text-sm font-semibold ${viewMode === "list" || viewMode === "search" ? "bg-white shadow-sm text-gray-900" : "text-gray-500"}`}
                                             style={{ padding: '8px 16px', borderRadius: '8px' }}
                                         >
-                                            상담 목록 <span className="badge badge-primary" style={{ marginLeft: '6px', fontSize: '10px', padding: '2px 6px' }}>{displayList.length}</span>
+                                            목록<span className="badge badge-primary" style={{ marginLeft: '6px', fontSize: '10px', padding: '2px 6px' }}>{displayList.length}</span>
                                         </button>
                                         <button
                                             onClick={() => setViewMode("write")}
                                             className={`btn btn-ghost text-sm font-semibold ${viewMode === "write" ? "bg-white shadow-sm text-gray-900" : "text-gray-500"}`}
                                             style={{ padding: '8px 16px', borderRadius: '8px' }}
                                         >
-                                            + 새 상담 작성
+                                            + 새 상담
                                         </button>
                                     </div>
                                 </div>
@@ -602,21 +1358,21 @@ export default function Dashboard() {
                                                     {viewMode === "search" ? <Search className="text-gray-300" style={{ width: '40px', height: '40px' }} /> : <FileText className="text-gray-300" style={{ width: '40px', height: '40px' }} />}
                                                 </div>
                                                 <h3 className="text-lg font-bold text-gray-900 mb-2">
-                                                    {viewMode === "search" ? "검색 결과가 없습니다" : "등록된 상담이 없습니다"}
+                                                    {viewMode === "search" ? "검색 결과가 없습니다" : "상담 기록이 없습니다"}
                                                 </h3>
                                                 <p className="text-gray-500 mb-8">
                                                     {viewMode === "search" ? (
-                                                        "다른 키워드로 검색해보세요."
+                                                        "다른 검색어로 다시 시도해보세요."
                                                     ) : (
                                                         <>
-                                                            선택하신 날짜에 예정된 상담 일정이 없습니다.<br />
-                                                            새로운 상담을 등록해보세요.
+                                                            선택한 날짜의 상담 기록이 없습니다.<br />
+                                                            새 상담을 등록해 시작하세요.
                                                         </>
                                                     )}
                                                 </p>
                                                 {viewMode !== "search" && (
                                                     <button onClick={() => setViewMode("write")} className="btn btn-primary">
-                                                        상담 일정 등록하기
+                                                        상담 작성하기
                                                     </button>
                                                 )}
                                             </div>
@@ -644,25 +1400,46 @@ export default function Dashboard() {
                                                                     </div>
                                                                 </div>
                                                             </div>
-                                                            <button onClick={() => handleDelete(c.id!)} className="btn btn-danger-ghost p-2 rounded-lg" data-tooltip="삭제">
-                                                                <Trash2 style={{ width: '16px', height: '16px' }} />
-                                                            </button>
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (editingConsultationId === c.id) {
+                                                                            cancelConsultationEdit()
+                                                                            return
+                                                                        }
+                                                                        startConsultationEdit(c)
+                                                                    }}
+                                                                    className={`btn p-2 rounded-lg ${editingConsultationId === c.id ? "btn-primary text-white" : "btn-ghost text-gray-500"}`}
+                                                                    data-tooltip={editingConsultationId === c.id ? "수정 취소" : "수정"}
+                                                                >
+                                                                    <PencilLine style={{ width: '16px', height: '16px' }} />
+                                                                </button>
+                                                                <button onClick={() => handleDelete(c.id!)} className="btn btn-danger-ghost p-2 rounded-lg" data-tooltip="삭제">
+                                                                    <Trash2 style={{ width: '16px', height: '16px' }} />
+                                                                </button>
+                                                            </div>
                                                         </div>
 
                                                         <div style={{ paddingLeft: '52px' }}>
-                                                            <div className="badge badge-primary mb-3" style={{ backgroundColor: '#f3f4f6', color: '#4b5563' }}>
-                                                                {c.topic || "일반 상담"}
-                                                            </div>
-                                                            <p className="text-gray-900 leading-relaxed whitespace-pre-wrap mb-4">{c.originalContent}</p>
-
-                                                            {c.aiSummary && (
-                                                                <div className="rounded-xl p-5" style={{ borderColor: '#fcd34d', backgroundColor: '#fffbeb', border: '1px solid #fcd34d' }}>
-                                                                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-yellow-200">
-                                                                        <Sparkles style={{ width: '16px', height: '16px', color: '#b45309' }} />
-                                                                        <span className="text-sm font-bold" style={{ color: '#b45309' }}>AI 요약 노트</span>
+                                                            {editingConsultationId === c.id ? (
+                                                                renderConsultationEditForm(c)
+                                                            ) : (
+                                                                <>
+                                                                    <div className="badge badge-primary mb-3" style={{ backgroundColor: '#f3f4f6', color: '#4b5563' }}>
+                                                                        {c.topic || "일반"}
                                                                     </div>
-                                                                    <MarkdownRenderer content={c.aiSummary} />
-                                                                </div>
+                                                                    <p className="text-gray-900 leading-relaxed whitespace-pre-wrap mb-4">{c.originalContent}</p>
+
+                                                                    {c.aiSummary && (
+                                                                        <div className="rounded-xl p-5" style={{ borderColor: '#fcd34d', backgroundColor: '#fffbeb', border: '1px solid #fcd34d' }}>
+                                                                            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-yellow-200">
+                                                                                <Sparkles style={{ width: '16px', height: '16px', color: '#b45309' }} />
+                                                                                <span className="text-sm font-bold" style={{ color: '#b45309' }}>AI 요약</span>
+                                                                            </div>
+                                                                            <MarkdownRenderer content={c.aiSummary} />
+                                                                        </div>
+                                                                    )}
+                                                                </>
                                                             )}
                                                         </div>
                                                     </div>
@@ -677,7 +1454,7 @@ export default function Dashboard() {
                                                     <input type="time" value={formData.time} onChange={e => setFormData({ ...formData, time: e.target.value })} className="input-field" />
                                                 </div>
                                                 <div className="flex flex-col gap-2">
-                                                    <label className="text-sm font-bold text-gray-900">상담 주제</label>
+                                                    <label className="text-sm font-bold text-gray-900">주제</label>
                                                     <input type="text" placeholder="예: 진로, 교우관계" value={formData.topic} onChange={e => setFormData({ ...formData, topic: e.target.value })} className="input-field" />
                                                 </div>
                                             </div>
@@ -685,18 +1462,26 @@ export default function Dashboard() {
                                             <div className="grid grid-cols-2 gap-6 mb-6">
                                                 <div className="flex flex-col gap-2">
                                                     <label className="text-sm font-bold text-gray-900">학번</label>
-                                                    <input type="text" placeholder="10101" value={formData.studentId} onChange={e => setFormData({ ...formData, studentId: e.target.value })} className="input-field" />
+                                                    <input
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        pattern="[0-9]*"
+                                                        placeholder="1234"
+                                                        value={formData.studentId}
+                                                        onChange={e => setFormData({ ...formData, studentId: e.target.value.replace(/\D/g, "") })}
+                                                        className="input-field"
+                                                    />
                                                 </div>
                                                 <div className="flex flex-col gap-2">
                                                     <label className="text-sm font-bold text-gray-900">이름 <span className="text-danger">*</span></label>
-                                                    <input type="text" placeholder="홍길동" value={formData.studentName} onChange={e => setFormData({ ...formData, studentName: e.target.value })} className="input-field" />
+                                                    <input type="text" placeholder="학생 이름" value={formData.studentName} onChange={e => setFormData({ ...formData, studentName: e.target.value })} className="input-field" />
                                                 </div>
                                             </div>
 
                                             <div className="flex flex-col gap-2 mb-8">
                                                 <label className="text-sm font-bold text-gray-900">상담 내용 <span className="text-danger">*</span></label>
                                                 <textarea
-                                                    placeholder="상담 내용을 상세히 기록해주세요..."
+                                                    placeholder="상담 내용을 자세히 작성하세요..."
                                                     value={formData.content}
                                                     onChange={e => setFormData({ ...formData, content: e.target.value })}
                                                     className="input-field"
@@ -704,10 +1489,9 @@ export default function Dashboard() {
                                                 />
                                             </div>
 
-                                            {/* AI 모델 선택 */}
                                             <div className="flex flex-col gap-2 mb-8">
                                                 <label className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                                                    <Sparkles style={{ width: '14px', height: '14px' }} className="text-primary" /> AI 모델 선택
+                                                    <Sparkles style={{ width: '14px', height: '14px' }} className="text-primary" /> AI 모델
                                                 </label>
                                                 <select
                                                     value={selectedModel}
@@ -717,7 +1501,7 @@ export default function Dashboard() {
                                                 >
                                                     {AVAILABLE_MODELS.map(m => (
                                                         <option key={m.id} value={m.id}>
-                                                            {m.name} — {m.description}
+                                                            {m.name} - {m.description}
                                                         </option>
                                                     ))}
                                                 </select>
@@ -744,7 +1528,7 @@ export default function Dashboard() {
                                                     className="btn btn-secondary flex-1 gap-2"
                                                     style={{ color: '#b45309', borderColor: '#fcd34d', backgroundColor: '#fffbeb' }}
                                                 >
-                                                    {isSummarizing ? "분석 중..." : <><Sparkles style={{ width: '20px', height: '20px' }} /> AI 요약하기</>}
+                                                    {isSummarizing ? "요약 중..." : <><Sparkles style={{ width: '20px', height: '20px' }} /> AI 요약하기</>}
                                                 </button>
                                                 <button
                                                     onClick={() => handleSave(!!summary)}
@@ -752,7 +1536,7 @@ export default function Dashboard() {
                                                     className="btn btn-primary flex-2"
                                                     style={{ flex: 2 }}
                                                 >
-                                                    {isSaving ? "저장 중..." : "기록 저장하기"}
+                                                    {isSaving ? "저장 중..." : "기록 저장"}
                                                 </button>
                                             </div>
                                         </div>
@@ -768,64 +1552,364 @@ export default function Dashboard() {
                         <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
                             <User className="text-primary" style={{ width: '24px', height: '24px' }} /> 학생 목록
                         </h2>
-                        <div className="grid grid-cols-1 gap-4">
-                            {students.map((student, i) => (
-                                <div key={i} className="border rounded-xl bg-gray-50 overflow-hidden">
-                                    <div
-                                        className="p-4 flex justify-between items-center cursor-pointer hover:bg-white transition-colors"
-                                        onClick={() => setExpandedStudentId(expandedStudentId === student.name ? null : student.name)}
+                        <div className="mb-6 flex flex-col gap-3">
+                            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                                <div className="flex items-center gap-2">
+                                    <label className="text-sm font-semibold text-gray-700">정렬</label>
+                                    <select
+                                        value={studentSortOption}
+                                        onChange={e => setStudentSortOption(e.target.value as StudentSortOption)}
+                                        className="input-field"
+                                        style={{ width: '220px', paddingTop: '8px', paddingBottom: '8px' }}
                                     >
-                                        <div>
-                                            <h3 className="font-bold text-lg text-gray-900 flex items-center gap-2">
-                                                {student.name}
-                                            </h3>
-                                            <p className="text-sm text-gray-500">학번: {student.id} | 마지막 상담: {student.lastDate}</p>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <span className="badge badge-primary">{student.count}건</span>
-                                            <ChevronLeft style={{ width: '20px', height: '20px', transform: expandedStudentId === student.name ? 'rotate(-90deg)' : 'rotate(0deg)' }} className="text-gray-400" />
-                                        </div>
-                                    </div>
-
-                                    {expandedStudentId === student.name && (
-                                        <div className="border-t bg-white p-4 animate-fade-in">
-                                            <div className="flex justify-end mb-4">
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleDeleteStudent(student.name); }}
-                                                    className="btn btn-danger-ghost text-sm flex items-center gap-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100"
-                                                    style={{ padding: '6px 12px' }}
-                                                >
-                                                    <Trash2 style={{ width: '16px', height: '16px' }} /> 학생 데이터 전체 삭제
-                                                </button>
-                                            </div>
-                                            <div className="space-y-3">
-                                                {consultations.filter(c => c.studentName === student.name).map(c => (
-                                                    <div key={c.id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
-                                                        <div className="flex justify-between items-start mb-2">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-sm font-bold text-gray-900">{c.date}</span>
-                                                                <span className="text-xs text-gray-500">{c.time}</span>
-                                                                <span className="badge badge-primary text-xs" style={{ padding: '2px 8px' }}>{c.topic || "일반"}</span>
-                                                            </div>
-                                                            <button onClick={() => handleDelete(c.id!)} className="text-gray-400 hover:text-red-500 p-1">
-                                                                <Trash2 style={{ width: '16px', height: '16px' }} />
-                                                            </button>
-                                                        </div>
-                                                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.originalContent}</p>
-                                                        {c.aiSummary && (
-                                                            <div className="mt-3 bg-yellow-50 p-4 rounded-lg border border-yellow-100">
-                                                                <span className="font-bold text-yellow-800 block mb-2 text-xs flex items-center gap-1"><Sparkles style={{ width: '12px', height: '12px' }} /> AI 요약</span>
-                                                                <MarkdownRenderer content={c.aiSummary} />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                                        <option value="date_desc">날짜순 (기본)</option>
+                                        <option value="student_id_asc">학번 오름차순</option>
+                                        <option value="student_id_desc">학번 내림차순</option>
+                                    </select>
                                 </div>
-                            ))}
-                            {students.length === 0 && (
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-sm font-semibold text-gray-700">일괄 삭제</label>
+                                        <select
+                                            value={bulkDeleteMode}
+                                            onChange={e => setBulkDeleteMode(e.target.value as BulkDeleteMode)}
+                                            className="input-field"
+                                            style={{ width: '180px', paddingTop: '8px', paddingBottom: '8px' }}
+                                        >
+                                            <option value="selected_students">선택 학생</option>
+                                            <option value="all">전체 상담</option>
+                                        </select>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            if (bulkDeleteMode === "all") {
+                                                void handleDeleteAllConsultations()
+                                            } else {
+                                                void handleDeleteSelectedStudents(selectedStudentGroups)
+                                            }
+                                        }}
+                                        className="btn btn-danger-ghost text-sm rounded-lg bg-red-50 text-red-600 hover:bg-red-100"
+                                        style={{ padding: '8px 12px' }}
+                                    >
+                                        <Trash2 style={{ width: '14px', height: '14px' }} /> 삭제
+                                    </button>
+                                </div>
+                            </div>
+                            <div
+                                className="border rounded-xl p-4 flex flex-col gap-3"
+                                style={{ backgroundColor: '#eef2ff', borderColor: '#c7d2fe' }}
+                            >
+                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <Sparkles style={{ width: '16px', height: '16px' }} className="text-primary" />
+                                        <span className="text-sm font-bold text-gray-900">행동발달 초안 작성</span>
+                                    </div>
+                                    <span className="text-xs text-gray-600">
+                                        대상 {behaviorTargetGroups.length}명 / 완료 {completedBehaviorCount} / 실패 {failedBehaviorCount}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-sm font-semibold text-gray-700">모델</label>
+                                        <select
+                                            value={selectedModel}
+                                            onChange={e => setSelectedModel(e.target.value)}
+                                            className="input-field"
+                                            style={{ paddingTop: '8px', paddingBottom: '8px' }}
+                                        >
+                                            {AVAILABLE_MODELS.map(model => (
+                                                <option key={model.id} value={model.id}>
+                                                    {model.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-sm font-semibold text-gray-700">범위</label>
+                                        <select
+                                            value={behaviorGenerationMode}
+                                            onChange={e => setBehaviorGenerationMode(e.target.value as BehaviorGenerationMode)}
+                                            className="input-field"
+                                            style={{ paddingTop: '8px', paddingBottom: '8px' }}
+                                        >
+                                            <option value="selected_students">선택 학생</option>
+                                            <option value="all">전체 학생</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-sm font-semibold text-gray-700">근거 방식</label>
+                                        <select
+                                            value={behaviorEvidenceMode}
+                                            onChange={e => setBehaviorEvidenceMode(e.target.value as BehaviorEvidenceMode)}
+                                            className="input-field"
+                                            style={{ paddingTop: '8px', paddingBottom: '8px' }}
+                                        >
+                                            <option value="all_records">전체 기록 반영</option>
+                                            <option value="selected_only">체크한 상담만 반영</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                        <button
+                                            onClick={() => { void handleGenerateBehaviorDrafts() }}
+                                            disabled={isGeneratingBehavior || behaviorTargetGroups.length === 0}
+                                            className="btn btn-primary text-sm"
+                                            style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}
+                                        >
+                                            {isGeneratingBehavior
+                                                ? `생성 중... (${behaviorProgress.completed}/${behaviorProgress.total})`
+                                                : "초안 생성"}
+                                        </button>
+                                        <button
+                                            onClick={() => { void handleDownloadBehaviorExcel() }}
+                                            disabled={isGeneratingBehavior || isExportingBehavior || behaviorDrafts.length === 0}
+                                            className="btn btn-secondary text-sm"
+                                            style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}
+                                        >
+                                            <Download style={{ width: '14px', height: '14px' }} /> {isExportingBehavior ? "내보내는 중..." : "엑셀 다운로드"}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="text-xs text-gray-600 border rounded-lg px-3 py-2 bg-white" style={{ borderColor: '#c7d2fe' }}>
+                                    {behaviorEvidenceMode === "selected_only"
+                                        ? `체크 상담 반영 기준: 학생 ${selectedBehaviorStudentCount}명 / 상담 ${selectedBehaviorConsultationCount}건 선택됨`
+                                        : "전체 상담 반영 기준: 학생별 전체 상담 기록을 근거로 사용함"}
+                                </div>
+                                {behaviorGenerationMode === "selected_students" && selectedStudentKeys.length === 0 && (
+                                    <p className="text-xs text-gray-600">
+                                        선택 학생 모드에서는 먼저 체크박스로 학생을 선택해주세요.
+                                    </p>
+                                )}
+                                {behaviorEvidenceMode === "selected_only" && (
+                                    <p className="text-xs text-gray-600">
+                                        학생 상세 카드에서 상담별 `행발 반영` 체크박스를 선택하면 해당 상담만 행발 근거로 사용합니다.
+                                    </p>
+                                )}
+                                {behaviorEvidenceMode === "selected_only" && selectedOnlyMissingTargetCount > 0 && (
+                                    <p className="text-xs text-amber-700">
+                                        대상 학생 중 {selectedOnlyMissingTargetCount}명은 아직 선택된 상담이 없습니다.
+                                    </p>
+                                )}
+                            </div>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-gray-500">
+                                <label className="flex items-center gap-2 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={isAllStudentsSelected}
+                                        onChange={() => {
+                                            if (isAllStudentsSelected) {
+                                                setSelectedStudentKeys([])
+                                            } else {
+                                                setSelectedStudentKeys(studentGroups.map(group => group.key))
+                                            }
+                                        }}
+                                        style={{ width: '16px', height: '16px' }}
+                                    />
+                                    전체 학생 선택 ({selectedStudentKeys.length}/{studentGroups.length})
+                                </label>
+                                <span>학생 기준 그룹화 / 기본 정렬: 최신 상담순</span>
+                            </div>
+                        </div>
+                        {sortedBehaviorDrafts.length > 0 && (
+                            <div className="mb-6 border rounded-xl bg-gray-50 p-4 animate-fade-in">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                                    <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                                        <Sparkles style={{ width: '14px', height: '14px' }} className="text-primary" /> 생성된 행동발달 초안
+                                    </h3>
+                                    <span className="text-xs text-gray-500">학생별 초안을 검토하고 필요 시 직접 수정할 수 있습니다.</span>
+                                </div>
+                                <div className="flex flex-col gap-3">
+                                    {sortedBehaviorDrafts.map(draft => (
+                                        <div key={draft.studentKey} className="border rounded-lg bg-white p-4">
+                                            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 mb-3">
+                                                <div>
+                                                    <p className="font-bold text-gray-900">{draft.studentName}</p>
+                                                    <p className="text-xs text-gray-500">
+                                                        학번 {draft.studentId} / 상담 {draft.consultationCount}건 / 최신 상담 {draft.lastDate} {draft.lastTime}
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span
+                                                        className="badge"
+                                                        style={{
+                                                            backgroundColor: draft.status === "completed"
+                                                                ? "#ecfdf3"
+                                                                : draft.status === "failed"
+                                                                    ? "#fef2f2"
+                                                                    : draft.status === "generating"
+                                                                        ? "#e0e7ff"
+                                                                        : "#f3f4f6",
+                                                            color: draft.status === "completed"
+                                                                ? "#166534"
+                                                                : draft.status === "failed"
+                                                                    ? "#b91c1c"
+                                                                    : draft.status === "generating"
+                                                                        ? "#3730a3"
+                                                                        : "#374151",
+                                                        }}
+                                                    >
+                                                        {getBehaviorStatusLabel(draft.status)}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => { void handleRegenerateBehaviorDraft(draft.studentKey) }}
+                                                        disabled={isGeneratingBehavior}
+                                                        className="btn btn-secondary text-xs"
+                                                        style={{ padding: '6px 10px' }}
+                                                    >
+                                                        다시 생성
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <textarea
+                                                value={draft.content}
+                                                onChange={e => handleBehaviorDraftContentChange(draft.studentKey, e.target.value)}
+                                                placeholder="생성된 행동발달 초안을 확인하고 수정하세요."
+                                                className="input-field"
+                                                style={{ minHeight: '112px', resize: 'vertical' }}
+                                                disabled={draft.status === "generating"}
+                                            />
+                                            {draft.status === "failed" && (
+                                                <p className="text-xs text-red-600 mt-2">
+                                                    생성 실패: {draft.errorMessage || "알 수 없는 오류"}
+                                                </p>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        <div className="grid grid-cols-1 gap-4">
+                            {studentGroups.map((student) => {
+                                const selectedBehaviorCount = selectedBehaviorConsultationMap[student.key]?.length ?? 0
+                                return (
+                                    <div key={student.key} className="border rounded-xl bg-gray-50 overflow-hidden">
+                                        <div
+                                            className="p-4 flex justify-between items-center cursor-pointer hover:bg-white transition-colors"
+                                            onClick={() => setExpandedStudentId(expandedStudentId === student.key ? null : student.key)}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <label
+                                                    className="mt-1 cursor-pointer select-none"
+                                                    onClick={e => e.stopPropagation()}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedStudentKeys.includes(student.key)}
+                                                        onChange={() => toggleStudentSelection(student.key)}
+                                                        style={{ width: '16px', height: '16px' }}
+                                                    />
+                                                </label>
+                                                <div>
+                                                    <h3 className="font-bold text-lg text-gray-900 flex items-center gap-2">
+                                                        {student.name}
+                                                    </h3>
+                                                    <p className="text-sm text-gray-500">학번: {student.id} | 마지막 상담: {student.lastDate} {student.lastTime}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                {behaviorEvidenceMode === "selected_only" && (
+                                                    <span
+                                                        className="badge"
+                                                        style={{ backgroundColor: '#e0e7ff', color: '#3730a3' }}
+                                                    >
+                                                        행발 선택 {selectedBehaviorCount}
+                                                    </span>
+                                                )}
+                                                <span className="badge badge-primary">{student.count}</span>
+                                                <ChevronLeft style={{ width: '20px', height: '20px', transform: expandedStudentId === student.key ? 'rotate(-90deg)' : 'rotate(0deg)' }} className="text-gray-400" />
+                                            </div>
+                                        </div>
+
+                                        {expandedStudentId === student.key && (
+                                            <div className="border-t bg-white p-4 animate-fade-in">
+                                                <div className="flex justify-end mb-4">
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); void handleDeleteStudent(student) }}
+                                                        className="btn btn-danger-ghost text-sm flex items-center gap-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100"
+                                                        style={{ padding: '6px 12px' }}
+                                                    >
+                                                        <Trash2 style={{ width: '16px', height: '16px' }} /> 학생 데이터 전체 삭제
+                                                    </button>
+                                                </div>
+                                                <div className="space-y-3">
+                                                    {student.consultations.map(c => {
+                                                        const isBehaviorChecked = Boolean(c.id && selectedBehaviorConsultationMap[student.key]?.includes(c.id))
+
+                                                        return (
+                                                            <div key={c.id || `${student.key}-${c.date}-${c.time}-${c.topic || ""}`} className="border rounded-lg p-4 hover:shadow-sm transition-shadow">
+                                                                <div className="flex justify-between items-start mb-2">
+                                                                    <div className="flex flex-col gap-2">
+                                                                        <label
+                                                                            className="flex items-center gap-2 text-xs font-semibold text-gray-600 cursor-pointer select-none"
+                                                                            onClick={event => event.stopPropagation()}
+                                                                        >
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={isBehaviorChecked}
+                                                                                onChange={() => {
+                                                                                    if (c.id) {
+                                                                                        toggleBehaviorConsultationSelection(student.key, c.id)
+                                                                                    }
+                                                                                }}
+                                                                                disabled={!c.id}
+                                                                                style={{ width: '14px', height: '14px' }}
+                                                                            />
+                                                                            행발 반영
+                                                                        </label>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-sm font-bold text-gray-900">{c.date}</span>
+                                                                            <span className="text-xs text-gray-500">{c.time}</span>
+                                                                            <span className="badge badge-primary text-xs" style={{ padding: '2px 8px' }}>{c.topic || "일반"}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <button
+                                                                            onClick={(event) => {
+                                                                                event.stopPropagation()
+                                                                                if (editingConsultationId === c.id) {
+                                                                                    cancelConsultationEdit()
+                                                                                    return
+                                                                                }
+                                                                                startConsultationEdit(c)
+                                                                            }}
+                                                                            className={`btn text-xs rounded-lg flex items-center gap-1 ${editingConsultationId === c.id ? "btn-primary text-white" : "btn-ghost text-gray-600"}`}
+                                                                            style={{ padding: '6px 10px' }}
+                                                                        >
+                                                                            <PencilLine style={{ width: '14px', height: '14px' }} />
+                                                                            {editingConsultationId === c.id ? "취소" : "수정"}
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => { if (c.id) void handleDelete(c.id) }}
+                                                                            className="btn btn-danger-ghost text-xs rounded-lg bg-red-50 text-red-600 hover:bg-red-100 flex items-center gap-1"
+                                                                            style={{ padding: '6px 10px' }}
+                                                                        >
+                                                                            <Trash2 style={{ width: '14px', height: '14px' }} />
+                                                                            삭제
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                {editingConsultationId === c.id ? (
+                                                                    renderConsultationEditForm(c)
+                                                                ) : (
+                                                                    <>
+                                                                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.originalContent}</p>
+                                                                        {c.aiSummary && (
+                                                                            <div className="mt-3 bg-yellow-50 p-4 rounded-lg border border-yellow-100">
+                                                                                <span className="font-bold text-yellow-800 block mb-2 text-xs flex items-center gap-1"><Sparkles style={{ width: '12px', height: '12px' }} /> AI 요약</span>
+                                                                                <MarkdownRenderer content={c.aiSummary} />
+                                                                            </div>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })}
+                            {studentGroups.length === 0 && (
                                 <div className="text-center py-12 text-gray-500">
                                     등록된 학생이 없습니다.
                                 </div>
@@ -871,7 +1955,7 @@ export default function Dashboard() {
                                                 style={{ height: `${(stat.count / maxCount) * 100}%`, opacity: 0.8 }}
                                             ></div>
                                             <div className="absolute text-xs font-bold text-white" style={{ bottom: '8px', textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
-                                                {stat.count > 0 ? `${stat.count}건` : ''}
+                                                {stat.count > 0 ? `${stat.count}` : ""}
                                             </div>
                                         </div>
                                         <span className="text-sm font-medium text-gray-600">{stat.label}</span>
@@ -911,9 +1995,7 @@ export default function Dashboard() {
                                 <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
                                     <ShieldCheck className="text-primary" style={{ width: '20px', height: '20px' }} /> 계정 잠금 해제
                                 </h3>
-                                <p className="text-sm text-gray-500 mb-4">
-                                    이메일/비밀번호 로그인 10회 실패로 잠긴 계정을 해제합니다.
-                                </p>
+                                <p className="text-sm text-gray-500 mb-4">이메일/비밀번호 로그인 10회 실패로 잠긴 계정을 해제합니다.</p>
                                 <div className="flex gap-3" style={{ flexWrap: 'wrap' }}>
                                     <input
                                         type="email"
