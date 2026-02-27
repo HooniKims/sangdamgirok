@@ -27,21 +27,11 @@ service cloud.firestore {
     }
 
     // 이메일/비밀번호 로그인 실패 누적 잠금용
-    // 비로그인 상태에서도 접근이 필요해 범위를 최소 필드로 제한합니다.
+    // 잠금 확인/기록은 서버 API(Firebase Admin SDK)에서 처리합니다.
+    // 클라이언트에서는 관리자의 잠금 해제만 허용합니다.
     match /loginLocks/{lockKey} {
-      allow read: if true;
-      allow create, update: if request.resource.data.keys().hasOnly([
-        "failedAttempts",
-        "isLocked",
-        "lockedAt",
-        "updatedAt",
-        "unlockedAt",
-        "unlockedBy"
-      ])
-      && request.resource.data.failedAttempts is int
-      && request.resource.data.failedAttempts >= 0
-      && request.resource.data.failedAttempts <= 10
-      && request.resource.data.isLocked is bool;
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 

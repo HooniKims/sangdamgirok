@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { onAuthStateChanged, signOut } from "firebase/auth"
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore"
+import { onAuthStateChanged, signOut, deleteUser } from "firebase/auth"
+import { collection, addDoc, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from "date-fns"
 import { ko } from "date-fns/locale"
@@ -19,12 +19,18 @@ import {
     Sparkles,
     ShieldCheck,
     Download,
-    PencilLine
+    PencilLine,
+    Sun,
+    Moon,
+    Menu,
+    X,
+    AlertTriangle
 } from "lucide-react"
 import { Consultation, TeacherProfile } from "@/types"
 import { generateWithRetry, AVAILABLE_MODELS, DEFAULT_MODEL } from "@/utils/ollamaClient"
 import { cleanMetaInfo } from "@/utils/textProcessor"
 import { buildEmailLockKey, normalizeEmail } from "@/utils/authLock"
+import { useTheme } from "@/components/ThemeProvider"
 import {
     buildBehaviorRewritePrompt,
     buildStudentBehaviorPrompt,
@@ -189,6 +195,7 @@ const EMPTY_EDIT_FORM: ConsultationEditForm = {
 }
 
 export default function Dashboard() {
+    const { resolvedTheme, setTheme } = useTheme()
     const [currentMonth, setCurrentMonth] = useState(new Date())
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
     const [consultations, setConsultations] = useState<Consultation[]>([])
@@ -216,8 +223,14 @@ export default function Dashboard() {
     const [teacherId, setTeacherId] = useState<string | null>(null)
     const [teacherEmail, setTeacherEmail] = useState("")
     const [teacherRole, setTeacherRole] = useState<TeacherProfile["role"]>("teacher")
+    const [teacherName, setTeacherName] = useState("")
+    const [teacherCreatedAt, setTeacherCreatedAt] = useState<string>("")
     const [unlockEmail, setUnlockEmail] = useState("")
     const [isUnlocking, setIsUnlocking] = useState(false)
+    const [isProfileOpen, setIsProfileOpen] = useState(false)
+    const [deleteStep, setDeleteStep] = useState<"idle" | "confirm" | "done">("idle")
+    const [isDeleting, setIsDeleting] = useState(false)
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
     // Student List State
     const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null)
@@ -260,6 +273,12 @@ export default function Dashboard() {
                 const data = snapshot.data();
                 const role = data?.role ? String(data.role).toLowerCase() : "teacher";
                 setTeacherRole(role === "admin" ? "admin" : "teacher")
+                setTeacherName(data?.name ? String(data.name) : "")
+                if (data?.createdAt && data.createdAt instanceof Timestamp) {
+                    setTeacherCreatedAt(format(data.createdAt.toDate(), "yyyy-MM-dd"))
+                } else {
+                    setTeacherCreatedAt("")
+                }
             },
             (error) => {
                 console.error("Role snapshot error:", error)
@@ -418,6 +437,42 @@ export default function Dashboard() {
             await signOut(auth)
         } catch {
             alert("로그아웃 중 오류가 발생했습니다.")
+        }
+    }
+
+    const handleDeleteAccount = async () => {
+        setIsDeleting(true)
+        try {
+            const user = auth.currentUser
+            if (!user) throw new Error("인증된 사용자가 없습니다.")
+
+            // 1. Firestore 상담 데이터 삭제
+            const consultationsQuery = query(
+                collection(db, "consultations"),
+                where("teacherId", "==", user.uid)
+            )
+            const consultationsSnapshot = await getDocs(consultationsQuery)
+            const deletePromises = consultationsSnapshot.docs.map(d => deleteDoc(d.ref))
+            await Promise.all(deletePromises)
+
+            // 2. Firestore 사용자 프로필 삭제
+            await deleteDoc(doc(db, "users", user.uid))
+
+            // 3. Firebase Auth 계정 삭제
+            await deleteUser(user)
+
+            setDeleteStep("done")
+        } catch (err: unknown) {
+            const code = typeof err === "object" && err && "code" in err ? String(err.code) : ""
+            if (code === "auth/requires-recent-login") {
+                alert("보안을 위해 최근에 다시 로그인한 후 탈퇴를 진행해주세요.")
+            } else {
+                alert("회원 탈퇴 중 오류가 발생했습니다. 다시 시도해주세요.")
+            }
+            console.error("Delete account error:", err)
+            setDeleteStep("idle")
+        } finally {
+            setIsDeleting(false)
         }
     }
 
@@ -815,7 +870,7 @@ export default function Dashboard() {
         if (!consultation.id || editingConsultationId !== consultation.id) return null
 
         return (
-            <div className="rounded-xl border p-4" style={{ backgroundColor: "#f8fafc", borderColor: "#c7d2fe" }}>
+            <div className="rounded-xl border p-4" style={{ backgroundColor: 'var(--gray-50)', borderColor: 'var(--primary-light)' }}>
                 <div className="grid grid-cols-2 gap-4 mb-3">
                     <div className="flex flex-col gap-1">
                         <label className="text-xs font-semibold text-gray-700">시간</label>
@@ -1135,9 +1190,9 @@ export default function Dashboard() {
     const maxCount = Math.max(...monthlyStats.map(s => s.count), 1)
 
     return (
-        <div className="min-h-screen flex flex-col bg-gray-50">
+        <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--background)' }}>
             {/* Header */}
-            <header className="bg-white border-b sticky top-0 z-20" style={{ height: 'var(--header-height)' }}>
+            <header style={{ height: 'var(--header-height)', backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, zIndex: 20 }}>
                 <div className="container h-full flex items-center justify-between">
                     <div className="flex items-center gap-8">
                         <div
@@ -1180,17 +1235,7 @@ export default function Dashboard() {
                             )}
                         </nav>
                     </div>
-                    <div className="flex items-center gap-3 relative">
-                        {teacherEmail && <span className="text-sm text-gray-500 hidden md:inline">{teacherEmail}</span>}
-                        {teacherRole === "admin" && (
-                            <button
-                                onClick={() => setActiveTab("admin")}
-                                className={`btn btn-ghost p-2 rounded-full ${activeTab === "admin" ? "bg-gray-100 text-primary" : "text-gray-500"}`}
-                                data-tooltip-bottom="관리자 메뉴"
-                            >
-                                <ShieldCheck style={{ width: '20px', height: '20px' }} />
-                            </button>
-                        )}
+                    <div className="flex items-center gap-2 relative">
                         <button
                             onClick={toggleSearch}
                             className={`btn btn-ghost p-2 rounded-full ${isSearchOpen ? 'bg-gray-100 text-primary' : ''}`}
@@ -1199,18 +1244,182 @@ export default function Dashboard() {
                             <Search style={{ width: '20px', height: '20px' }} />
                         </button>
 
-                        <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--border)', margin: '0 4px' }}></div>
                         <button
-                            onClick={() => { void handleLogout() }}
-                            className="btn btn-danger-ghost text-sm font-medium flex items-center gap-2"
-                            data-tooltip-bottom="로그아웃"
+                            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+                            className="btn btn-ghost p-2 rounded-full"
+                            data-tooltip-bottom={resolvedTheme === 'dark' ? '라이트 모드' : '다크 모드'}
                         >
-                            <LogOut style={{ width: '16px', height: '16px' }} />
-                            <span className="hidden sm:inline">로그아웃</span>
+                            {resolvedTheme === 'dark'
+                                ? <Sun style={{ width: '20px', height: '20px' }} />
+                                : <Moon style={{ width: '20px', height: '20px' }} />
+                            }
+                        </button>
+
+                        {/* Profile Button */}
+                        <div className="relative">
+                            <button
+                                onClick={() => { setIsProfileOpen(!isProfileOpen); setDeleteStep("idle") }}
+                                className={`btn btn-ghost p-2 rounded-full ${isProfileOpen ? 'bg-gray-100 text-primary' : ''}`}
+                                data-tooltip-bottom="내 정보"
+                            >
+                                <User style={{ width: '20px', height: '20px' }} />
+                            </button>
+
+                            {/* Profile Popup */}
+                            {isProfileOpen && (
+                                <div className="popup-panel" style={{ width: '300px', right: 0, top: '100%', marginTop: '8px' }}>
+                                    <div className="flex items-center gap-3 mb-4 pb-4 border-b">
+                                        <div className="bg-primary rounded-full flex items-center justify-center" style={{ width: '40px', height: '40px', flexShrink: 0 }}>
+                                            <User className="text-white" style={{ width: '20px', height: '20px' }} />
+                                        </div>
+                                        <div style={{ minWidth: 0 }}>
+                                            <div className="font-bold text-gray-900" style={{ fontSize: '15px' }}>{teacherName || "교사"}</div>
+                                            {teacherRole === "admin" && (
+                                                <span className="badge badge-primary text-xs" style={{ padding: '1px 6px', fontSize: '10px' }}>관리자</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col gap-3 mb-4">
+                                        <div>
+                                            <div className="text-xs font-semibold text-gray-500 mb-1">아이디 (이메일)</div>
+                                            <div className="text-sm text-gray-900" style={{ wordBreak: 'break-all' }}>{teacherEmail}</div>
+                                        </div>
+                                        {teacherCreatedAt && (
+                                            <div>
+                                                <div className="text-xs font-semibold text-gray-500 mb-1">가입일</div>
+                                                <div className="text-sm text-gray-900">{teacherCreatedAt}</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="border-t pt-3 flex flex-col gap-2">
+                                        <button
+                                            onClick={() => { void handleLogout(); setIsProfileOpen(false) }}
+                                            className="btn btn-ghost text-sm font-medium flex items-center gap-2 w-full justify-start text-gray-600"
+                                            style={{ padding: '8px 12px' }}
+                                        >
+                                            <LogOut style={{ width: '16px', height: '16px' }} /> 로그아웃
+                                        </button>
+                                        <button
+                                            onClick={() => setDeleteStep("confirm")}
+                                            className="btn btn-ghost text-sm font-medium flex items-center gap-2 w-full justify-start"
+                                            style={{ padding: '8px 12px', color: 'var(--danger)' }}
+                                        >
+                                            <Trash2 style={{ width: '16px', height: '16px' }} /> 회원 탈퇴
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Mobile Hamburger Menu */}
+                        <button
+                            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                            className="btn btn-ghost p-2 rounded-full md:hidden-util"
+                        >
+                            {isMobileMenuOpen ? <X style={{ width: '20px', height: '20px' }} /> : <Menu style={{ width: '20px', height: '20px' }} />}
                         </button>
                     </div>
                 </div>
             </header>
+
+            {/* Mobile Navigation Drawer */}
+            {isMobileMenuOpen && (
+                <div className="md:hidden-util" style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '12px 16px', position: 'sticky', top: 'var(--header-height)', zIndex: 19 }}>
+                    <nav className="flex flex-col gap-1">
+                        <button
+                            onClick={() => { setActiveTab("calendar"); setIsMobileMenuOpen(false) }}
+                            className={`btn btn-ghost font-semibold text-left ${activeTab === "calendar" ? "bg-gray-100 text-primary" : "text-gray-500"}`}
+                            style={{ justifyContent: 'flex-start', padding: '10px 12px' }}
+                        >
+                            상담 관리
+                        </button>
+                        <button
+                            onClick={() => { setActiveTab("students"); setIsMobileMenuOpen(false) }}
+                            className={`btn btn-ghost font-semibold text-left ${activeTab === "students" ? "bg-gray-100 text-primary" : "text-gray-500"}`}
+                            style={{ justifyContent: 'flex-start', padding: '10px 12px' }}
+                        >
+                            학생 목록
+                        </button>
+                        <button
+                            onClick={() => { setActiveTab("stats"); setIsMobileMenuOpen(false) }}
+                            className={`btn btn-ghost font-semibold text-left ${activeTab === "stats" ? "bg-gray-100 text-primary" : "text-gray-500"}`}
+                            style={{ justifyContent: 'flex-start', padding: '10px 12px' }}
+                        >
+                            통계
+                        </button>
+                        {teacherRole === "admin" && (
+                            <button
+                                onClick={() => { setActiveTab("admin"); setIsMobileMenuOpen(false) }}
+                                className={`btn btn-ghost font-semibold text-left flex items-center gap-2 ${activeTab === "admin" ? "bg-gray-100 text-primary" : "text-gray-500"}`}
+                                style={{ justifyContent: 'flex-start', padding: '10px 12px' }}
+                            >
+                                <ShieldCheck style={{ width: '16px', height: '16px' }} /> 관리자
+                            </button>
+                        )}
+                    </nav>
+                </div>
+            )}
+
+            {/* Delete Account Confirmation Modal */}
+            {deleteStep === "confirm" && (
+                <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '16px' }}>
+                    <div className="card p-8" style={{ maxWidth: '400px', width: '100%', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                        <div className="flex items-center justify-center mb-4">
+                            <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: 'var(--danger-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <AlertTriangle style={{ width: '28px', height: '28px', color: 'var(--danger)' }} />
+                            </div>
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">정말 탈퇴하시겠습니까?</h3>
+                        <p className="text-sm text-gray-500 mb-6">
+                            탈퇴하면 모든 상담 기록과 계정 정보가 영구적으로 삭제되며, 복구할 수 없습니다.
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => { setDeleteStep("idle"); setIsProfileOpen(false) }}
+                                className="btn btn-ghost flex-1"
+                                style={{ padding: '10px', border: '1px solid var(--border)' }}
+                                disabled={isDeleting}
+                            >
+                                취소
+                            </button>
+                            <button
+                                onClick={() => { void handleDeleteAccount() }}
+                                className="btn flex-1"
+                                style={{ padding: '10px', backgroundColor: 'var(--danger)', color: 'white', border: 'none' }}
+                                disabled={isDeleting}
+                            >
+                                {isDeleting ? "탈퇴 처리 중..." : "탈퇴하기"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Account Success Modal */}
+            {deleteStep === "done" && (
+                <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '16px' }}>
+                    <div className="card p-8" style={{ maxWidth: '400px', width: '100%', backgroundColor: 'var(--surface)', textAlign: 'center' }}>
+                        <div className="flex items-center justify-center mb-4">
+                            <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Sparkles style={{ width: '28px', height: '28px', color: 'var(--primary)' }} />
+                            </div>
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">탈퇴가 완료되었습니다</h3>
+                        <p className="text-sm text-gray-500 mb-6">
+                            그동안 이용해 주셔서 감사합니다.<br />
+                            모든 데이터가 안전하게 삭제되었습니다.
+                        </p>
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="btn btn-primary w-full"
+                            style={{ padding: '10px' }}
+                        >
+                            확인
+                        </button>
+                    </div>
+                </div>
+            )}
+
 
             {/* Main Content */}
             <main className="flex-1 w-full container py-6">
@@ -1235,7 +1444,7 @@ export default function Dashboard() {
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                         {/* Left Column: Calendar */}
                         <div className="lg:col-span-4 flex flex-col gap-6">
-                            <div className="card p-6 bg-white">
+                            <div className="card p-6" style={{ backgroundColor: 'var(--surface)' }}>
                                 <div className="flex items-center justify-between mb-6">
                                     <h2 className="text-xl font-bold text-gray-900" style={{ whiteSpace: 'nowrap' }}>{format(currentMonth, "yyyy MMM", { locale: ko })}</h2>
                                     <div className="flex items-center gap-2">
@@ -1291,16 +1500,16 @@ export default function Dashboard() {
                             </div>
 
                             {/* Mini Stats */}
-                            <div className="card p-6 text-white" style={{ backgroundColor: '#312e81', position: 'relative', overflow: 'hidden' }}>
+                            <div className="card p-6 text-white" style={{ backgroundColor: 'var(--mini-stats-bg)', position: 'relative', overflow: 'hidden' }}>
                                 <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '128px', height: '128px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '50%', filter: 'blur(40px)' }}></div>
                                 <h3 className="text-lg font-bold mb-4" style={{ position: 'relative', zIndex: 1 }}>이번 달 통계</h3>
                                 <div className="grid grid-cols-2 gap-4" style={{ position: 'relative', zIndex: 1 }}>
                                     <div>
-                                        <div className="text-xs font-medium mb-1" style={{ color: '#a5b4fc' }}>총 상담 건수</div>
+                                        <div className="text-xs font-medium mb-1" style={{ color: 'var(--mini-stats-accent)' }}>총 상담 건수</div>
                                         <div className="text-2xl font-bold">{consultations.filter(c => c.date.startsWith(format(currentMonth, "yyyy-MM"))).length}</div>
                                     </div>
                                     <div>
-                                        <div className="text-xs font-medium mb-1" style={{ color: '#a5b4fc' }}>AI 요약 건수</div>
+                                        <div className="text-xs font-medium mb-1" style={{ color: 'var(--mini-stats-accent)' }}>AI 요약 건수</div>
                                         <div className="text-2xl font-bold">{consultations.filter(c => c.date.startsWith(format(currentMonth, "yyyy-MM")) && c.aiSummary).length}</div>
                                     </div>
                                 </div>
@@ -1309,7 +1518,7 @@ export default function Dashboard() {
 
                         {/* Right Column: Workspace */}
                         <div className="lg:col-span-8">
-                            <div className="card bg-white flex flex-col" style={{ minHeight: '600px' }}>
+                            <div className="card flex flex-col" style={{ minHeight: '600px', backgroundColor: 'var(--surface)' }}>
                                 {/* Workspace Header */}
                                 <div className="p-6 border-b flex flex-col md:flex-row items-center justify-between gap-4">
                                     <div>
@@ -1331,18 +1540,18 @@ export default function Dashboard() {
                                         </p>
                                     </div>
 
-                                    <div className="flex bg-gray-50 p-1 rounded-xl border">
+                                    <div className="flex p-1 rounded-xl border" style={{ backgroundColor: 'var(--gray-50)' }}>
                                         <button
                                             onClick={() => setViewMode("list")}
-                                            className={`btn btn-ghost text-sm font-semibold ${viewMode === "list" || viewMode === "search" ? "bg-white shadow-sm text-gray-900" : "text-gray-500"}`}
-                                            style={{ padding: '8px 16px', borderRadius: '8px' }}
+                                            className={`btn btn-ghost text-sm font-semibold ${viewMode === "list" || viewMode === "search" ? "shadow-sm" : "text-gray-500"}`}
+                                            style={{ padding: '8px 16px', borderRadius: '8px', ...(viewMode === "list" || viewMode === "search" ? { backgroundColor: 'var(--surface)', color: 'var(--text-main)' } : {}) }}
                                         >
                                             목록<span className="badge badge-primary" style={{ marginLeft: '6px', fontSize: '10px', padding: '2px 6px' }}>{displayList.length}</span>
                                         </button>
                                         <button
                                             onClick={() => setViewMode("write")}
-                                            className={`btn btn-ghost text-sm font-semibold ${viewMode === "write" ? "bg-white shadow-sm text-gray-900" : "text-gray-500"}`}
-                                            style={{ padding: '8px 16px', borderRadius: '8px' }}
+                                            className={`btn btn-ghost text-sm font-semibold ${viewMode === "write" ? "shadow-sm" : "text-gray-500"}`}
+                                            style={{ padding: '8px 16px', borderRadius: '8px', ...(viewMode === "write" ? { backgroundColor: 'var(--surface)', color: 'var(--text-main)' } : {}) }}
                                         >
                                             + 새 상담
                                         </button>
@@ -1350,11 +1559,11 @@ export default function Dashboard() {
                                 </div>
 
                                 {/* Workspace Content */}
-                                <div className="p-6 flex-1 bg-gray-50">
+                                <div className="p-6 flex-1" style={{ backgroundColor: 'var(--gray-50)' }}>
                                     {(viewMode === "list" || viewMode === "search") ? (
                                         displayList.length === 0 ? (
                                             <div className="h-full flex flex-col items-center justify-center text-center py-20">
-                                                <div className="bg-white rounded-2xl flex items-center justify-center mb-6 border" style={{ width: '80px', height: '80px' }}>
+                                                <div className="rounded-2xl flex items-center justify-center mb-6 border" style={{ width: '80px', height: '80px', backgroundColor: 'var(--surface)' }}>
                                                     {viewMode === "search" ? <Search className="text-gray-300" style={{ width: '40px', height: '40px' }} /> : <FileText className="text-gray-300" style={{ width: '40px', height: '40px' }} />}
                                                 </div>
                                                 <h3 className="text-lg font-bold text-gray-900 mb-2">
@@ -1379,7 +1588,7 @@ export default function Dashboard() {
                                         ) : (
                                             <div className="flex flex-col gap-4">
                                                 {displayList.map(c => (
-                                                    <div key={c.id} className="card p-6 bg-white hover:shadow-md transition-all">
+                                                    <div key={c.id} className="card p-6 hover:shadow-md transition-all" style={{ backgroundColor: 'var(--surface)' }}>
                                                         <div className="flex justify-between items-start mb-4">
                                                             <div className="flex items-center gap-3">
                                                                 <div className="bg-primary-light text-primary rounded-xl flex items-center justify-center font-bold text-sm" style={{ width: '40px', height: '40px' }}>
@@ -1425,16 +1634,16 @@ export default function Dashboard() {
                                                                 renderConsultationEditForm(c)
                                                             ) : (
                                                                 <>
-                                                                    <div className="badge badge-primary mb-3" style={{ backgroundColor: '#f3f4f6', color: '#4b5563' }}>
+                                                                    <div className="badge badge-primary mb-3" style={{ backgroundColor: 'var(--gray-100)', color: 'var(--gray-600)' }}>
                                                                         {c.topic || "일반"}
                                                                     </div>
                                                                     <p className="text-gray-900 leading-relaxed whitespace-pre-wrap mb-4">{c.originalContent}</p>
 
                                                                     {c.aiSummary && (
-                                                                        <div className="rounded-xl p-5" style={{ borderColor: '#fcd34d', backgroundColor: '#fffbeb', border: '1px solid #fcd34d' }}>
+                                                                        <div className="rounded-xl p-5" style={{ borderColor: 'var(--ai-summary-border)', backgroundColor: 'var(--ai-summary-bg)', border: '1px solid var(--ai-summary-border)' }}>
                                                                             <div className="flex items-center gap-2 mb-3 pb-2 border-b border-yellow-200">
-                                                                                <Sparkles style={{ width: '16px', height: '16px', color: '#b45309' }} />
-                                                                                <span className="text-sm font-bold" style={{ color: '#b45309' }}>AI 요약</span>
+                                                                                <Sparkles style={{ width: '16px', height: '16px', color: 'var(--ai-summary-text)' }} />
+                                                                                <span className="text-sm font-bold" style={{ color: 'var(--ai-summary-text)' }}>AI 요약</span>
                                                                             </div>
                                                                             <MarkdownRenderer content={c.aiSummary} />
                                                                         </div>
@@ -1447,7 +1656,7 @@ export default function Dashboard() {
                                             </div>
                                         )
                                     ) : (
-                                        <div className="card p-8 bg-white">
+                                        <div className="card p-8" style={{ backgroundColor: 'var(--surface)' }}>
                                             <div className="grid grid-cols-2 gap-6 mb-6">
                                                 <div className="flex flex-col gap-2">
                                                     <label className="text-sm font-bold text-gray-900">시간</label>
@@ -1516,7 +1725,7 @@ export default function Dashboard() {
                                                         value={summary}
                                                         onChange={e => setSummary(e.target.value)}
                                                         className="input-field"
-                                                        style={{ height: '128px', resize: 'none', backgroundColor: '#fffbeb', borderColor: '#fcd34d' }}
+                                                        style={{ height: '128px', resize: 'none', backgroundColor: 'var(--ai-summary-bg)', borderColor: 'var(--ai-summary-border)' }}
                                                     />
                                                 </div>
                                             )}
@@ -1526,7 +1735,7 @@ export default function Dashboard() {
                                                     onClick={handleSummarize}
                                                     disabled={isSummarizing || !formData.content}
                                                     className="btn btn-secondary flex-1 gap-2"
-                                                    style={{ color: '#b45309', borderColor: '#fcd34d', backgroundColor: '#fffbeb' }}
+                                                    style={{ color: 'var(--ai-summary-text)', borderColor: 'var(--ai-summary-border)', backgroundColor: 'var(--ai-summary-bg)' }}
                                                 >
                                                     {isSummarizing ? "요약 중..." : <><Sparkles style={{ width: '20px', height: '20px' }} /> AI 요약하기</>}
                                                 </button>
@@ -1548,7 +1757,7 @@ export default function Dashboard() {
                 )}
 
                 {activeTab === "students" && (
-                    <div className="card bg-white p-6 animate-fade-in">
+                    <div className="card p-6 animate-fade-in" style={{ backgroundColor: 'var(--surface)' }}>
                         <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
                             <User className="text-primary" style={{ width: '24px', height: '24px' }} /> 학생 목록
                         </h2>

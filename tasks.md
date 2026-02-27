@@ -330,9 +330,9 @@ http://localhost:3000
 ## 📌 향후 개선 사항
 
 - [ ] 상담 기록 내보내기 (PDF, Excel)
-- [ ] 로그인 잠금 로직 서버 사이드 검증(Cloud Functions/Next API)으로 강화
-- [ ] 다크 모드 지원
-- [ ] 모바일 반응형 최적화
+- [x] 로그인 잠금 로직 서버 사이드 검증(Cloud Functions/Next API)으로 강화
+- [x] 다크 모드 지원
+- [x] 모바일 반응형 최적화
 - [ ] PWA 지원
 
 ---
@@ -341,6 +341,38 @@ http://localhost:3000
 
 - `components/dashboard.tsx`: 학번 입력 필드를 숫자만 입력되도록 수정 (`replace(/\D/g, "")`).
 - `components/dashboard.tsx`: 학번 placeholder를 `10101`에서 `1234`로 변경.
+
+---
+
+## 2026-02-27 다크모드 구현 + 로그인 잠금 서버사이드 강화
+
+### 다크모드
+- `app/globals.css`: `html.dark` 셀렉터로 다크모드 CSS 변수 오버라이드 추가
+- `components/ThemeProvider.tsx`: [신규] 테마 상태 관리 Context (useSyncExternalStore 기반, localStorage 연동, 시스템 설정 감지)
+- `app/layout.tsx`: ThemeProvider 래핑 추가
+- `components/dashboard.tsx`: Sun/Moon 테마 토글 버튼 추가, 인라인 색상을 CSS 변수로 전환
+- `components/auth-guard.tsx`: 로그인 화면 다크모드 대응
+
+### 로그인 잠금 서버사이드 검증 강화
+- `lib/firebase-admin.ts`: [신규] Firebase Admin SDK 동적 초기화 모듈
+- `app/api/auth/check-lock/route.ts`: [신규] 로그인 잠금 상태 확인 API
+- `app/api/auth/record-failure/route.ts`: [신규] 로그인 실패 기록 API (트랜잭션 처리)
+- `components/auth-guard.tsx`: Firestore 직접 접근을 서버 API 호출로 교체
+- `firestore.rules`: `loginLocks` 컬렉션 클라이언트 접근 제한
+
+---
+
+## 2026-02-27 회원탈퇴 기능 + 모바일 반응형 최적화
+
+### 회원탈퇴
+- `components/dashboard.tsx`: User 아이콘 클릭 시 프로필 팝업 (이름, 아이디, 가입일, 로그아웃, 회원탈퇴)
+- `components/dashboard.tsx`: 탈퇴 확인 모달 + 탈퇴 완료 안내 모달
+- `components/dashboard.tsx`: Firestore 상담 데이터 삭제 + users 문서 삭제 + Firebase Auth 계정 삭제
+
+### 모바일 반응형 최적화
+- `components/dashboard.tsx`: 모바일 햄버거 메뉴 + 네비게이션 드로어 추가
+- `app/globals.css`: `md:hidden-util` 모바일 전용 유틸리티 클래스
+- `app/globals.css`: 모바일에서 헤더 높이 축소(56px), 패딩/간격/텍스트 크기 조절
 
 ---
 

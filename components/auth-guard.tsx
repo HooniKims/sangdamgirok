@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react"
 import { ArrowRight, Lock, Mail, Sparkles, User } from "lucide-react"
 import { createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut } from "firebase/auth"
-import { doc, getDoc, runTransaction, serverTimestamp, setDoc } from "firebase/firestore"
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore"
 import { auth, db, googleProvider } from "@/lib/firebase"
-import { buildEmailLockKey, LOGIN_LOCK_THRESHOLD, normalizeEmail } from "@/utils/authLock"
+import { normalizeEmail } from "@/utils/authLock"
 
 function mapAuthError(code: string): string {
     switch (code) {
@@ -50,10 +50,6 @@ function GoogleIcon() {
     )
 }
 
-type LoginLockData = {
-    failedAttempts?: number
-    isLocked?: boolean
-}
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
     const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -122,19 +118,41 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         )
     }
 
-    const getLockDocRef = async (targetEmail: string) => {
-        const lockKey = await buildEmailLockKey(targetEmail)
-        return doc(db, "loginLocks", lockKey)
+    const checkLoginLock = async (targetEmail: string): Promise<{ isLocked: boolean; remainingAttempts: number }> => {
+        try {
+            const res = await fetch("/api/auth/check-lock", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: targetEmail }),
+            })
+            if (!res.ok) throw new Error("Server error")
+            const data = await res.json()
+            return {
+                isLocked: Boolean(data.isLocked),
+                remainingAttempts: typeof data.remainingAttempts === "number" ? data.remainingAttempts : 10,
+            }
+        } catch (err) {
+            console.error("check-lock API error:", err)
+            return { isLocked: false, remainingAttempts: 10 }
+        }
     }
 
-    const getLoginLockData = async (targetEmail: string) => {
-        const lockRef = await getLockDocRef(targetEmail)
-        const lockSnapshot = await getDoc(lockRef)
-        const lockData = (lockSnapshot.data() ?? {}) as LoginLockData
-        return {
-            lockRef,
-            failedAttempts: typeof lockData.failedAttempts === "number" ? lockData.failedAttempts : 0,
-            isLocked: Boolean(lockData.isLocked),
+    const recordLoginFailure = async (targetEmail: string): Promise<{ isLocked: boolean; remainingAttempts: number }> => {
+        try {
+            const res = await fetch("/api/auth/record-failure", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: targetEmail }),
+            })
+            if (!res.ok) throw new Error("Server error")
+            const data = await res.json()
+            return {
+                isLocked: Boolean(data.isLocked),
+                remainingAttempts: typeof data.remainingAttempts === "number" ? data.remainingAttempts : 0,
+            }
+        } catch (err) {
+            console.error("record-failure API error:", err)
+            return { isLocked: false, remainingAttempts: 0 }
         }
     }
 
@@ -178,18 +196,6 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                     email: googleEmail,
                     name: credential.user.displayName?.trim() || googleEmail.split("@")[0] || "교사",
                 })
-                const lockRef = await getLockDocRef(googleEmail)
-                await setDoc(
-                    lockRef,
-                    {
-                        failedAttempts: 0,
-                        isLocked: false,
-                        updatedAt: serverTimestamp(),
-                        unlockedAt: serverTimestamp(),
-                        unlockedBy: credential.user.uid,
-                    },
-                    { merge: true }
-                )
             } catch (profileError) {
                 await signOut(auth)
                 throw profileError
@@ -244,9 +250,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                     throw profileError
                 }
             } else {
-                const { lockRef, isLocked } = await getLoginLockData(normalizedEmail)
+                const lockStatus = await checkLoginLock(normalizedEmail)
 
-                if (isLocked) {
+                if (lockStatus.isLocked) {
                     setError("이 계정은 잠겨 있습니다. 관리자에게 잠금 해제를 요청하거나 비밀번호 재설정을 진행하세요.")
                     return
                 }
@@ -268,18 +274,6 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                     } catch (e) {
                         console.error("Failed to upsert profile on login", e)
                     }
-
-                    await setDoc(
-                        lockRef,
-                        {
-                            failedAttempts: 0,
-                            isLocked: false,
-                            updatedAt: serverTimestamp(),
-                            unlockedAt: serverTimestamp(),
-                            unlockedBy: credential.user.uid,
-                        },
-                        { merge: true }
-                    )
                 } catch (loginError: unknown) {
                     const code = typeof loginError === "object" && loginError && "code" in loginError ? String(loginError.code) : ""
                     const isCredentialError = [
@@ -293,35 +287,13 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                         throw loginError
                     }
 
-                    const result = await runTransaction(db, async (transaction) => {
-                        const lockSnapshot = await transaction.get(lockRef)
-                        const lockData = (lockSnapshot.data() ?? {}) as LoginLockData
-                        const currentFailedAttempts = typeof lockData.failedAttempts === "number" ? lockData.failedAttempts : 0
-                        const nextFailedAttempts = Math.min(currentFailedAttempts + 1, LOGIN_LOCK_THRESHOLD)
-                        const shouldLock = nextFailedAttempts >= LOGIN_LOCK_THRESHOLD
-
-                        transaction.set(
-                            lockRef,
-                            {
-                                failedAttempts: nextFailedAttempts,
-                                isLocked: shouldLock,
-                                updatedAt: serverTimestamp(),
-                                ...(shouldLock ? { lockedAt: serverTimestamp() } : {}),
-                            },
-                            { merge: true }
-                        )
-
-                        return {
-                            failedAttempts: nextFailedAttempts,
-                            isLocked: shouldLock,
-                        }
-                    })
+                    // 서버사이드에서 실패 기록 처리
+                    const result = await recordLoginFailure(normalizedEmail)
 
                     if (result.isLocked) {
                         setError("비밀번호 10회 이상 실패로 계정이 잠겼습니다. 관리자에게 잠금 해제를 요청해주세요.")
                     } else {
-                        const remainingAttempts = LOGIN_LOCK_THRESHOLD - result.failedAttempts
-                        setError(`이메일 또는 비밀번호가 올바르지 않습니다. ${remainingAttempts}회 더 실패하면 계정이 잠깁니다.`)
+                        setError(`이메일 또는 비밀번호가 올바르지 않습니다. ${result.remainingAttempts}회 더 실패하면 계정이 잠깁니다.`)
                     }
                     return
                 }
@@ -338,7 +310,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+            <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: 'var(--background)' }}>
                 <div style={{ maxWidth: "420px", width: "100%" }}>
                     <div className="text-center mb-8">
                         <div className="bg-primary rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg" style={{ width: "64px", height: "64px", transform: "rotate(3deg)" }}>
@@ -348,8 +320,8 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                         <p className="text-gray-500">교사 계정으로 로그인해 상담 기록을 관리하세요</p>
                     </div>
 
-                    <div className="card p-8 bg-white shadow-xl">
-                        <div className="flex gap-2 mb-6 bg-gray-100 rounded-lg p-1">
+                    <div className="card p-8 shadow-xl" style={{ backgroundColor: 'var(--surface)' }}>
+                        <div className="flex gap-2 mb-6 rounded-lg p-1" style={{ backgroundColor: 'var(--gray-100)' }}>
                             <button
                                 type="button"
                                 onClick={() => switchMode("login")}
@@ -477,9 +449,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                                 </button>
 
                                 <div className="flex items-center gap-3">
-                                    <div className="flex-1" style={{ height: "1px", backgroundColor: "#e5e7eb" }} />
-                                    <span className="text-xs text-gray-400">또는</span>
-                                    <div className="flex-1" style={{ height: "1px", backgroundColor: "#e5e7eb" }} />
+                                    <div className="flex-1" style={{ height: "1px", backgroundColor: "var(--border)" }} />
+                                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>또는</span>
+                                    <div className="flex-1" style={{ height: "1px", backgroundColor: "var(--border)" }} />
                                 </div>
                                 <button
                                     type="button"
@@ -494,7 +466,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                         </form>
                     </div>
 
-                    <p className="text-center text-gray-400 text-sm mt-8">© {new Date().getFullYear()} HooniKim All right reserved.</p>
+                    <p className="text-center text-sm mt-8" style={{ color: 'var(--text-muted)' }}>© {new Date().getFullYear()} HooniKim All right reserved.</p>
                 </div>
             </div>
         )
