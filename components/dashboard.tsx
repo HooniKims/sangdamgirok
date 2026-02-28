@@ -1851,8 +1851,7 @@ export default function Dashboard() {
                                 </div>
                             </div>
                             <div
-                                className="border rounded-xl p-4 flex flex-col gap-3"
-                                style={{ backgroundColor: '#eef2ff', borderColor: '#c7d2fe' }}
+                                className="border rounded-xl p-4 flex flex-col gap-3 bg-primary-light"
                             >
                                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                                     <div className="flex items-center gap-2">
@@ -1924,7 +1923,7 @@ export default function Dashboard() {
                                         </button>
                                     </div>
                                 </div>
-                                <div className="text-xs text-gray-600 border rounded-lg px-3 py-2 bg-white" style={{ borderColor: '#c7d2fe' }}>
+                                <div className="text-xs text-gray-600 border rounded-lg px-3 py-2 bg-white">
                                     {behaviorEvidenceMode === "selected_only"
                                         ? `체크 상담 반영 기준: 학생 ${selectedBehaviorStudentCount}명 / 상담 ${selectedBehaviorConsultationCount}건 선택됨`
                                         : "전체 상담 반영 기준: 학생별 전체 상담 기록을 근거로 사용함"}
@@ -2088,8 +2087,7 @@ export default function Dashboard() {
                                             <div className="flex items-center gap-3">
                                                 {behaviorEvidenceMode === "selected_only" && (
                                                     <span
-                                                        className="badge"
-                                                        style={{ backgroundColor: '#e0e7ff', color: '#3730a3' }}
+                                                        className="badge bg-primary-light text-primary"
                                                     >
                                                         행발 선택 {selectedBehaviorCount}
                                                     </span>

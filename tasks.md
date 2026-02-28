@@ -441,3 +441,4 @@ http://localhost:3000
 - `components/dashboard.tsx`: 행발 작성 시 학생 이름 옆 체크박스와 '전체 학생 선택' 체크박스 클릭 시, 하위 모든 상담 내역들의 '행발 반영' 체크 상태가 함께 동기화되도록 수정.
 - `utils/behaviorRecordPrompt.ts` / `components/dashboard.tsx`: 행발 초안 생성 시 글자 수 400자 미달이어도 실패 처리하지 않고 내용 그대로 출력한 뒤, 하단에 최종 글자 수를 안내하도록 수정. 주어 포함('학생은', 'OO는' 등) 시 사용자에게 실패 메시지를 띄우는 대신 내부적으로 해당 문구를 치환·삭제하고 처리를 완료하도록 로직 개선.
 - `components/dashboard.tsx`: 생성된 행발 초안 텍스트 하단에 복사 기능(`navigator.clipboard.writeText`)이 연결된 **복사하기** 아이콘 버튼을 추가하여 쉽게 나이스에 붙여넣기 할 수 있게 편의성 증대.
+- `components/dashboard.tsx`: '행동발달 초안 작성' 설정 패널 내에 하드코딩된 아주 밝은 배경색(`backgroundColor: '#eef2ff'`)을 제거하고 `bg-primary-light` 등 테마 변수 기반 클래스로 대체하여, 다크 모드 전환 시 글자가 보이지 않던 가독성 문제 해결.
