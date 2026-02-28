@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { onAuthStateChanged, signOut, deleteUser } from "firebase/auth"
-import { collection, addDoc, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore"
+import { collection, addDoc, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from "date-fns"
 import { ko } from "date-fns/locale"
@@ -24,7 +24,8 @@ import {
     Moon,
     Menu,
     X,
-    AlertTriangle
+    AlertTriangle,
+    Copy
 } from "lucide-react"
 import { Consultation, TeacherProfile } from "@/types"
 import { generateWithRetry, AVAILABLE_MODELS, DEFAULT_MODEL } from "@/utils/ollamaClient"
@@ -231,6 +232,23 @@ export default function Dashboard() {
     const [deleteStep, setDeleteStep] = useState<"idle" | "confirm" | "done">("idle")
     const [isDeleting, setIsDeleting] = useState(false)
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+    const profileRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+                setIsProfileOpen(false)
+                setDeleteStep("idle")
+            }
+        }
+
+        if (isProfileOpen) {
+            document.addEventListener("mousedown", handleClickOutside)
+        }
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside)
+        }
+    }, [isProfileOpen])
 
     // Student List State
     const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null)
@@ -446,6 +464,11 @@ export default function Dashboard() {
             const user = auth.currentUser
             if (!user) throw new Error("인증된 사용자가 없습니다.")
 
+            // 백업을 위해 프로필 정보 가져오기
+            const profileRef = doc(db, "users", user.uid)
+            const profileSnapshot = await getDoc(profileRef)
+            const profileData = profileSnapshot.exists() ? profileSnapshot.data() : null
+
             // 1. Firestore 상담 데이터 삭제
             const consultationsQuery = query(
                 collection(db, "consultations"),
@@ -456,16 +479,24 @@ export default function Dashboard() {
             await Promise.all(deletePromises)
 
             // 2. Firestore 사용자 프로필 삭제
-            await deleteDoc(doc(db, "users", user.uid))
+            await deleteDoc(profileRef)
 
             // 3. Firebase Auth 계정 삭제
-            await deleteUser(user)
+            try {
+                await deleteUser(user)
+            } catch (authError: any) {
+                // Auth 계정 삭제 실패 시 프로필 복원 (롤백)
+                if (profileData) {
+                    await setDoc(profileRef, profileData)
+                }
+                throw authError
+            }
 
             setDeleteStep("done")
         } catch (err: unknown) {
             const code = typeof err === "object" && err && "code" in err ? String(err.code) : ""
             if (code === "auth/requires-recent-login") {
-                alert("보안을 위해 최근에 다시 로그인한 후 탈퇴를 진행해주세요.")
+                alert("보안을 위해 로그아웃 후 다시 로그인한 다음 탈퇴를 진행해주세요.")
             } else {
                 alert("회원 탈퇴 중 오류가 발생했습니다. 다시 시도해주세요.")
             }
@@ -615,12 +646,27 @@ export default function Dashboard() {
         }
     }
 
-    const toggleStudentSelection = (studentKey: string) => {
-        setSelectedStudentKeys(prev =>
-            prev.includes(studentKey)
-                ? prev.filter(key => key !== studentKey)
-                : [...prev, studentKey]
-        )
+    const toggleStudentSelection = (studentKey: string, consultations: Consultation[]) => {
+        setSelectedStudentKeys(prev => {
+            const isCurrentlyChecked = prev.includes(studentKey);
+
+            // 행발 선택 상태도 함께 동기화
+            if (isCurrentlyChecked) {
+                setSelectedBehaviorConsultationMap(p => {
+                    const next = { ...p };
+                    delete next[studentKey];
+                    return next;
+                });
+                return prev.filter(key => key !== studentKey);
+            } else {
+                const allIds = consultations.map(c => c.id).filter((id): id is string => Boolean(id));
+                setSelectedBehaviorConsultationMap(p => ({
+                    ...p,
+                    [studentKey]: allIds
+                }));
+                return [...prev, studentKey];
+            }
+        });
     }
 
     const toggleBehaviorConsultationSelection = (studentKey: string, consultationId: string) => {
@@ -1256,7 +1302,7 @@ export default function Dashboard() {
                         </button>
 
                         {/* Profile Button */}
-                        <div className="relative">
+                        <div className="relative" ref={profileRef}>
                             <button
                                 onClick={() => { setIsProfileOpen(!isProfileOpen); setDeleteStep("idle") }}
                                 className={`btn btn-ghost p-2 rounded-full ${isProfileOpen ? 'bg-gray-100 text-primary' : ''}`}
@@ -1907,8 +1953,14 @@ export default function Dashboard() {
                                         onChange={() => {
                                             if (isAllStudentsSelected) {
                                                 setSelectedStudentKeys([])
+                                                setSelectedBehaviorConsultationMap({})
                                             } else {
                                                 setSelectedStudentKeys(studentGroups.map(group => group.key))
+                                                const nextMap: Record<string, string[]> = {}
+                                                studentGroups.forEach(group => {
+                                                    nextMap[group.key] = group.consultations.map(c => c.id).filter((id): id is string => Boolean(id))
+                                                })
+                                                setSelectedBehaviorConsultationMap(nextMap)
                                             }
                                         }}
                                         style={{ width: '16px', height: '16px' }}
@@ -1976,6 +2028,25 @@ export default function Dashboard() {
                                                 style={{ minHeight: '112px', resize: 'vertical' }}
                                                 disabled={draft.status === "generating"}
                                             />
+                                            {draft.status === "completed" && (
+                                                <div className="flex items-center justify-between mt-2">
+                                                    <button
+                                                        onClick={() => {
+                                                            navigator.clipboard.writeText(draft.content)
+                                                                .then(() => alert("행동발달 초안이 복사되었습니다."))
+                                                                .catch(err => console.error("복사 실패:", err))
+                                                        }}
+                                                        className="btn btn-ghost text-xs flex items-center gap-1 text-gray-600 hover:text-primary"
+                                                        style={{ padding: '4px 8px' }}
+                                                    >
+                                                        <Copy style={{ width: '14px', height: '14px' }} />
+                                                        복사하기
+                                                    </button>
+                                                    <p className="text-xs text-gray-500 text-right">
+                                                        공백 포함 {draft.content.length}자
+                                                    </p>
+                                                </div>
+                                            )}
                                             {draft.status === "failed" && (
                                                 <p className="text-xs text-red-600 mt-2">
                                                     생성 실패: {draft.errorMessage || "알 수 없는 오류"}
@@ -2003,7 +2074,7 @@ export default function Dashboard() {
                                                     <input
                                                         type="checkbox"
                                                         checked={selectedStudentKeys.includes(student.key)}
-                                                        onChange={() => toggleStudentSelection(student.key)}
+                                                        onChange={() => toggleStudentSelection(student.key, student.consultations)}
                                                         style={{ width: '16px', height: '16px' }}
                                                     />
                                                 </label>

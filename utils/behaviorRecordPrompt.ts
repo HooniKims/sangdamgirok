@@ -20,7 +20,7 @@ export type StudentBehaviorPromptInput = {
 const DEFAULT_MAX_CONSULTATIONS = 20;
 const MAX_NOTE_CHARS = 240;
 const DEFAULT_LENGTH_GUIDE = "본문은 반드시 400자 이상 500자 이하로 작성하세요.";
-export const MAX_BEHAVIOR_REWRITE_ATTEMPTS = 2;
+export const MAX_BEHAVIOR_REWRITE_ATTEMPTS = 4;
 export const DEFAULT_BEHAVIOR_MIN_LENGTH = 400;
 export const DEFAULT_BEHAVIOR_MAX_LENGTH = 500;
 
@@ -47,11 +47,17 @@ const endsWithNominalEnding = (sentence: string): boolean => {
     return (charCode - HANGUL_START) % 28 === JONGSEONG_MIEUM;
 };
 
-export const normalizeBehaviorDraftText = (text: string): string =>
-    text
+export const normalizeBehaviorDraftText = (text: string): string => {
+    let result = text
         .replace(/\r?\n+/g, " ")
         .replace(/\s+/g, " ")
         .trim();
+
+    // 내부적으로 주어 표현 강제 삭제
+    result = result.replace(/(학생은|학생이|OO는|OO가)\s*/g, "");
+
+    return result;
+}
 
 const splitSentences = (text: string): string[] =>
     text
@@ -86,13 +92,15 @@ export const validateBehaviorDraft = (
         violations.push("줄바꿈이 포함됨.");
     }
 
-    if (normalized.length < minLength || normalized.length > maxLength) {
-        violations.push(`글자 수가 ${minLength}~${maxLength}자 범위를 벗어남(현재 ${normalized.length}자).`);
-    }
+    // 글자수는 검증 실패 조건에서 제외하고, 길이 안내만 프롬프트 유지
+    // if (normalized.length < minLength || normalized.length > maxLength) {
+    //     violations.push(`글자 수가 ${minLength}~${maxLength}자 범위를 벗어남(현재 ${normalized.length}자).`);
+    // }
 
-    if (DISALLOWED_SUBJECT_PATTERN.test(normalized)) {
-        violations.push("'학생은/학생이/OO는' 형태의 주어 표현이 포함됨.");
-    }
+    // 삭제 처리하므로 실패에 걸리지 않도록 방지
+    // if (DISALLOWED_SUBJECT_PATTERN.test(normalized)) {
+    //     violations.push("'학생은/학생이/OO는' 형태의 주어 표현이 포함됨.");
+    // }
 
     if (DISALLOWED_NEGATIVE_PATTERN.test(normalized)) {
         violations.push("부정적으로 보일 수 있는 금지 표현이 포함됨.");

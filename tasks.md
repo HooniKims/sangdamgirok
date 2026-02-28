@@ -431,3 +431,13 @@ http://localhost:3000
 - `tasks.md`: 기술 스택의 폰트 정보를 현재 코드 기준(`Noto Sans KR`)으로 정리.
 - `tasks.md`: 프로젝트 구조를 현재 기준(`app/icon.svg`, `utils/behaviorRecordPrompt.ts` 포함)으로 갱신.
 - `tasks.md`: 행발 프롬프트 업데이트 설명을 현재 동작(체크박스 기반 근거 선택)과 일치하도록 정리.
+
+---
+
+## 2026-02-28 추가 버그 수정 및 UI 개선
+
+- `components/dashboard.tsx`: 프로필 팝업 영역 밖 클릭 시 닫히도록 `useRef` 및 마우스 이벤트 리스너 추가.
+- `components/dashboard.tsx`: 회원 탈퇴 시 `auth/requires-recent-login` 에러가 발생할 경우를 대비하여 로그인 정보 삭제 전 사용자 프로필을 백업하고, 실패 시 프로필 리스토어(롤백) 기능 및 명확한 에러 안내창 추가.
+- `components/dashboard.tsx`: 행발 작성 시 학생 이름 옆 체크박스와 '전체 학생 선택' 체크박스 클릭 시, 하위 모든 상담 내역들의 '행발 반영' 체크 상태가 함께 동기화되도록 수정.
+- `utils/behaviorRecordPrompt.ts` / `components/dashboard.tsx`: 행발 초안 생성 시 글자 수 400자 미달이어도 실패 처리하지 않고 내용 그대로 출력한 뒤, 하단에 최종 글자 수를 안내하도록 수정. 주어 포함('학생은', 'OO는' 등) 시 사용자에게 실패 메시지를 띄우는 대신 내부적으로 해당 문구를 치환·삭제하고 처리를 완료하도록 로직 개선.
+- `components/dashboard.tsx`: 생성된 행발 초안 텍스트 하단에 복사 기능(`navigator.clipboard.writeText`)이 연결된 **복사하기** 아이콘 버튼을 추가하여 쉽게 나이스에 붙여넣기 할 수 있게 편의성 증대.
