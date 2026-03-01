@@ -9,7 +9,6 @@ export const AVAILABLE_MODELS = [
     { id: "gemma3:12b-it-q4_K_M", name: "Gemma 3 12B Q4 (고품질)", description: "고품질 (8GB)" },
     { id: "qwen3:8b", name: "Qwen 3 8B (균형 잡힌 성능)", description: "균형 잡힌 성능" },
     { id: "qwen3:4b", name: "Qwen 3 4B (가장 빠른 응답)", description: "경량 빠른 응답" },
-    { id: "glm-4.7-flash", name: "GLM 4.7 Flash (고품질 보통 응답)", description: "고품질 보통 응답" },
     { id: "llama3.1:8b", name: "Llama 3.1 8B (범용 모델)", description: "범용 모델" },
 ];
 
