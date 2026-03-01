@@ -444,6 +444,13 @@ http://localhost:3000
 - `components/dashboard.tsx`: '행동발달 초안 작성' 설정 패널 내에 하드코딩된 아주 밝은 배경색(`backgroundColor: '#eef2ff'`)을 제거하고 `bg-primary-light` 등 테마 변수 기반 클래스로 대체하여, 다크 모드 전환 시 글자가 보이지 않던 가독성 문제 해결.
 - `utils/ollamaClient.ts`: AI 모델 기본값을 `Gemma 3 4B`로 변경하고 UI 상 이름표에 `(추천)` 표기를 추가. 다른 옵션들도 사용자가 선택하기 쉽도록 각 모델의 특징을 괄호 안에 간단히 명시(`Gemma 3 12B Q8 (최고 품질)` 등).
 - **2026-03-01**:
-  - `/api/auth/check-lock` 500 에러 원인 분석 및 해결 (`FIREBASE_SERVICE_ACCOUNT_KEY` 환경 변수 누락 확인).
-  - `app/api/auth/check-lock/route.ts` 및 `app/api/auth/record-failure/route.ts` 에러 로깅 강화 (Stack Trace 출력 및 클라이언트 에러 메시지 세분화).
-  - `.env.local`에 서비스 계정 키 반영 및 설정 가이드 작성.
+  - `/api/auth/check-lock` 500 에러 원인 분석 및 해결 (환경 변수 설정).
+  - API 에러 로깅 강화 및 스택 트레이스 출력 로직 보강.
+  - gemma3 4b 모델의 규칙 준수(날짜 제거, 과거형 금지)를 위한 프롬프트 고도화 및 검증/후처리 로직 강화.
+### 16. gemma3 4b 모델 행발 생성 규칙 준수 강화 (2026-03-01)
+- **문제**: gemma3 4b 소형 모델 사용 시 본문 앞에 날짜가 붙고, 과거형(~했다) 문장이 섞이는 문제 발생
+- **해결**:
+  - `utils/behaviorRecordPrompt.ts`: 시스템 프롬프트 최상단에 날짜/과거형 금지 규칙 및 구체적 예시(Do/Don't) 추가
+  - `utils/behaviorRecordPrompt.ts`: `normalizeBehaviorDraftText`에서 본문 앞 날짜 패턴 자동 제거 로직 추가
+  - `utils/behaviorRecordPrompt.ts`: `validateBehaviorDraft`에 과거형(~했다 등) 및 날짜 포함 여부 검증 패턴 추가
+  - 이를 통해 소형 모델에서도 명사형 종결 및 날짜 없는 본문 출력을 엄격히 강제함
