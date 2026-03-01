@@ -64,7 +64,8 @@ export async function POST(request: Request) {
 
         return NextResponse.json(result)
     } catch (error) {
-        console.error("record-failure error:", error)
-        return NextResponse.json({ error: "실패 기록 중 오류가 발생했습니다." }, { status: 500 })
+        console.error("record-failure error details:", error instanceof Error ? error.stack : error)
+        const errorMessage = error instanceof Error ? error.message : "실패 기록 중 오류가 발생했습니다."
+        return NextResponse.json({ error: errorMessage }, { status: 500 })
     }
 }

@@ -32,7 +32,8 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ isLocked, failedAttempts, remainingAttempts })
     } catch (error) {
-        console.error("check-lock error:", error)
-        return NextResponse.json({ error: "잠금 상태 확인 중 오류가 발생했습니다." }, { status: 500 })
+        console.error("check-lock error details:", error instanceof Error ? error.stack : error)
+        const errorMessage = error instanceof Error ? error.message : "잠금 상태 확인 중 오류가 발생했습니다."
+        return NextResponse.json({ error: errorMessage }, { status: 500 })
     }
 }

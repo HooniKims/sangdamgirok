@@ -330,7 +330,7 @@ http://localhost:3000
 ## 📌 향후 개선 사항
 
 - [ ] 상담 기록 내보내기 (PDF, Excel)
-- [x] 로그인 잠금 로직 서버 사이드 검증(Cloud Functions/Next API)으로 강화
+- [x] 로그인 잠금 로직 서버 사이드 검증(Cloud Functions/Next API)으로 강화 및 에러 로깅 보강 (2026-03-01)
 - [x] 다크 모드 지원
 - [x] 모바일 반응형 최적화
 - [ ] PWA 지원
@@ -442,3 +442,8 @@ http://localhost:3000
 - `utils/behaviorRecordPrompt.ts` / `components/dashboard.tsx`: 행발 초안 생성 시 글자 수 400자 미달이어도 실패 처리하지 않고 내용 그대로 출력한 뒤, 하단에 최종 글자 수를 안내하도록 수정. 주어 포함('학생은', 'OO는' 등) 시 사용자에게 실패 메시지를 띄우는 대신 내부적으로 해당 문구를 치환·삭제하고 처리를 완료하도록 로직 개선.
 - `components/dashboard.tsx`: 생성된 행발 초안 텍스트 하단에 복사 기능(`navigator.clipboard.writeText`)이 연결된 **복사하기** 아이콘 버튼을 추가하여 쉽게 나이스에 붙여넣기 할 수 있게 편의성 증대.
 - `components/dashboard.tsx`: '행동발달 초안 작성' 설정 패널 내에 하드코딩된 아주 밝은 배경색(`backgroundColor: '#eef2ff'`)을 제거하고 `bg-primary-light` 등 테마 변수 기반 클래스로 대체하여, 다크 모드 전환 시 글자가 보이지 않던 가독성 문제 해결.
+- `utils/ollamaClient.ts`: AI 모델 기본값을 `Gemma 3 4B`로 변경하고 UI 상 이름표에 `(추천)` 표기를 추가. 다른 옵션들도 사용자가 선택하기 쉽도록 각 모델의 특징을 괄호 안에 간단히 명시(`Gemma 3 12B Q8 (최고 품질)` 등).
+- **2026-03-01**:
+  - `/api/auth/check-lock` 500 에러 원인 분석 및 해결 (`FIREBASE_SERVICE_ACCOUNT_KEY` 환경 변수 누락 확인).
+  - `app/api/auth/check-lock/route.ts` 및 `app/api/auth/record-failure/route.ts` 에러 로깅 강화 (Stack Trace 출력 및 클라이언트 에러 메시지 세분화).
+  - `.env.local`에 서비스 계정 키 반영 및 설정 가이드 작성.
