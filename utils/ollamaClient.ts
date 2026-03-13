@@ -9,9 +9,6 @@ export const AVAILABLE_MODELS = [
     { id: "gemma3:12b-it-q8_0", name: "Gemma 3 12B Q8 (최고 품질)", description: "최고 품질 (13GB) · Google 대형 모델, 가장 정확" },
     { id: "gemma3:12b-it-q4_K_M", name: "Gemma 3 12B Q4 (고품질)", description: "고품질 (8GB) · 12B 경량 양자화, 속도↑ 품질 약간↓" },
     { id: "qwen3:8b", name: "Qwen 3 8B (균형 잡힌 성능)", description: "균형형 (5.2GB) · Alibaba 모델, 한국어 양호" },
-    { id: "qwen3.5:9b", name: "Qwen 3.5 9B", description: "고품질 추론 · 복잡한 문장 정리에 유리" },
-    { id: "qwen3.5:4b", name: "Qwen 3.5 4B", description: "균형형 경량 모델 · 속도와 품질 밸런스" },
-    { id: "qwen3.5:0.8b", name: "Qwen 3.5 0.8B", description: "초경량 모델 · 매우 빠른 응답" },
     { id: "qwen3:4b", name: "Qwen 3 4B (가장 빠른 응답)", description: "초경량 (2.7GB) · 빠른 응답, 품질 제한적" },
     { id: "llama3.1:8b", name: "Llama 3.1 8B (범용 모델)", description: "범용 (4.7GB) · Meta 영어 최적화, 한국어 보통" },
 ];
