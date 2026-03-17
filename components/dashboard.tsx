@@ -264,6 +264,8 @@ export default function Dashboard() {
     const [isExportingBehavior, setIsExportingBehavior] = useState(false)
     const [editingConsultationId, setEditingConsultationId] = useState<string | null>(null)
     const [editFormData, setEditFormData] = useState<ConsultationEditForm>(EMPTY_EDIT_FORM)
+    const [editSummary, setEditSummary] = useState("")
+    const [isEditSummarizing, setIsEditSummarizing] = useState(false)
     const [isUpdatingConsultation, setIsUpdatingConsultation] = useState(false)
 
     useEffect(() => {
@@ -369,11 +371,22 @@ export default function Dashboard() {
         }
     }
 
-    const handleSummarize = async () => {
-        if (!formData.content) return
-        setIsSummarizing(true)
-        try {
-            const systemMessage = `
+    const summarizeConsultationContent = async ({
+        date,
+        time,
+        studentName,
+        studentId,
+        topic,
+        content,
+    }: {
+        date: string
+        time: string
+        studentName: string
+        studentId: string
+        topic: string
+        content: string
+    }) => {
+        const systemMessage = `
 당신은 학교 교사의 학생 상담 기록을 정리하는 전문가입니다.
 다음 상담 내용을 포멀하고 공식적인 문체로 정돈하여 작성해주세요.
 
@@ -397,20 +410,34 @@ export default function Dashboard() {
 → 새로운 내용 추가 금지, 원본 내용만 다듬어서 작성
 `.trim()
 
-            const prompt = `날짜: ${format(selectedDate, "yyyy-MM-dd")} ${formData.time}
-학생: ${formData.studentName} (${formData.studentId})
-주제: ${formData.topic}
-내용: ${formData.content}
+        const prompt = `날짜: ${date} ${time}
+학생: ${studentName} (${studentId})
+주제: ${topic}
+내용: ${content}
 
 위 형식대로 간결하게 정리해주세요:`
 
-            const rawResult = await generateWithRetry({
-                systemMessage,
-                prompt,
-                model: selectedModel,
-            })
+        const rawResult = await generateWithRetry({
+            systemMessage,
+            prompt,
+            model: selectedModel,
+        })
 
-            const processed = cleanMetaInfo(rawResult)
+        return cleanMetaInfo(rawResult)
+    }
+
+    const handleSummarize = async () => {
+        if (!formData.content) return
+        setIsSummarizing(true)
+        try {
+            const processed = await summarizeConsultationContent({
+                date: format(selectedDate, "yyyy-MM-dd"),
+                time: formData.time,
+                studentName: formData.studentName,
+                studentId: formData.studentId,
+                topic: formData.topic,
+                content: formData.content,
+            })
             if (processed) setSummary(processed)
         } catch (error: unknown) {
             console.error("Summarize Error:", error)
@@ -538,6 +565,8 @@ export default function Dashboard() {
     const resetConsultationEditState = () => {
         setEditingConsultationId(null)
         setEditFormData(EMPTY_EDIT_FORM)
+        setEditSummary("")
+        setIsEditSummarizing(false)
         setIsUpdatingConsultation(false)
     }
 
@@ -555,11 +584,47 @@ export default function Dashboard() {
             topic: consultation.topic || "",
             content: consultation.originalContent || "",
         })
+        setEditSummary(consultation.aiSummary || "")
+        setIsEditSummarizing(false)
     }
 
     const cancelConsultationEdit = () => {
         if (isUpdatingConsultation) return
         resetConsultationEditState()
+    }
+
+    const handleEditSummarize = async (consultation: Consultation) => {
+        const nextContent = editFormData.content.trim()
+        const nextStudentName = editFormData.studentName.trim()
+
+        if (!nextContent) {
+            alert("상담 내용을 먼저 입력해주세요.")
+            return
+        }
+
+        if (!nextStudentName) {
+            alert("학생 이름을 먼저 입력해주세요.")
+            return
+        }
+
+        setIsEditSummarizing(true)
+        try {
+            const processed = await summarizeConsultationContent({
+                date: consultation.date || format(selectedDate, "yyyy-MM-dd"),
+                time: editFormData.time || consultation.time || format(new Date(), "HH:mm"),
+                studentName: nextStudentName,
+                studentId: editFormData.studentId.trim(),
+                topic: editFormData.topic.trim(),
+                content: nextContent,
+            })
+            if (processed) setEditSummary(processed)
+        } catch (error: unknown) {
+            console.error("Edit summarize error:", error)
+            const message = error instanceof Error ? error.message : "알 수 없는 오류"
+            alert(`요약 실패: ${message}`)
+        } finally {
+            setIsEditSummarizing(false)
+        }
     }
 
     const handleUpdateConsultation = async (consultation: Consultation) => {
@@ -578,7 +643,13 @@ export default function Dashboard() {
         const nextTopic = editFormData.topic.trim()
         const previousContent = (consultation.originalContent || "").trim()
         const previousTopic = (consultation.topic || "").trim()
+        const previousSummary = (consultation.aiSummary || "").trim()
+        const nextSummary = editSummary.trim()
         const shouldResetSummary = previousContent !== nextContent || previousTopic !== nextTopic
+        const shouldKeepEditedSummary = nextSummary.length > 0 && nextSummary !== previousSummary
+        const nextAiSummary = shouldResetSummary
+            ? (shouldKeepEditedSummary ? nextSummary : null)
+            : (nextSummary || null)
 
         setIsUpdatingConsultation(true)
         try {
@@ -588,7 +659,7 @@ export default function Dashboard() {
                 studentName: nextStudentName,
                 topic: nextTopic,
                 originalContent: nextContent,
-                ...(shouldResetSummary ? { aiSummary: null } : {}),
+                aiSummary: nextAiSummary,
                 updatedAt: Timestamp.now(),
             })
             resetConsultationEditState()
@@ -975,15 +1046,57 @@ export default function Dashboard() {
                         onChange={e => setEditFormData(prev => ({ ...prev, content: e.target.value }))}
                         className="input-field"
                         style={{ minHeight: "110px", resize: "vertical" }}
-                        disabled={isUpdatingConsultation}
+                        disabled={isUpdatingConsultation || isEditSummarizing}
                     />
+                </div>
+                <div className="flex flex-col gap-2 mb-3">
+                    <label className="text-xs font-semibold text-gray-700 flex items-center gap-2">
+                        <Sparkles style={{ width: '14px', height: '14px' }} className="text-primary" /> AI 모델
+                    </label>
+                    <select
+                        value={selectedModel}
+                        onChange={e => setSelectedModel(e.target.value)}
+                        className="input-field"
+                        style={{ cursor: 'pointer', paddingTop: '8px', paddingBottom: '8px' }}
+                        disabled={isUpdatingConsultation || isEditSummarizing}
+                    >
+                        {AVAILABLE_MODELS.map(m => (
+                            <option key={m.id} value={m.id}>
+                                {m.name} - {m.description}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex flex-col gap-1 mb-3">
+                    <div className="flex items-center justify-between gap-3">
+                        <label className="text-xs font-semibold text-gray-700 flex items-center gap-2">
+                            <Sparkles style={{ width: '14px', height: '14px' }} className="text-primary" /> AI 요약
+                        </label>
+                        <button
+                            onClick={() => { void handleEditSummarize(consultation) }}
+                            className="btn btn-secondary text-sm"
+                            style={{ padding: '8px 12px', color: 'var(--ai-summary-text)', borderColor: 'var(--ai-summary-border)', backgroundColor: 'var(--ai-summary-bg)' }}
+                            disabled={isUpdatingConsultation || isEditSummarizing || !editFormData.content.trim()}
+                        >
+                            {isEditSummarizing ? '요약 중...' : 'AI 요약 다시 생성'}
+                        </button>
+                    </div>
+                    <textarea
+                        value={editSummary}
+                        onChange={e => setEditSummary(e.target.value)}
+                        className="input-field"
+                        placeholder="AI 요약을 생성하거나 직접 수정할 수 있습니다. 비워두면 저장 시 AI 요약이 제거됩니다."
+                        style={{ minHeight: '128px', resize: 'vertical', backgroundColor: 'var(--ai-summary-bg)', borderColor: 'var(--ai-summary-border)' }}
+                        disabled={isUpdatingConsultation || isEditSummarizing}
+                    />
+                    <p className="text-xs text-gray-600">상담 내용이나 주제를 바꾼 뒤 저장하면 기존 AI 요약은 자동으로 초기화됩니다. 다시 사용하려면 위 버튼으로 새로 생성하세요.</p>
                 </div>
                 <div className="flex justify-end gap-2">
                     <button
                         onClick={cancelConsultationEdit}
                         className="btn btn-ghost text-sm"
                         style={{ padding: "8px 12px" }}
-                        disabled={isUpdatingConsultation}
+                        disabled={isUpdatingConsultation || isEditSummarizing}
                     >
                         취소
                     </button>
@@ -991,7 +1104,7 @@ export default function Dashboard() {
                         onClick={() => { void handleUpdateConsultation(consultation) }}
                         className="btn btn-primary text-sm"
                         style={{ padding: "8px 12px" }}
-                        disabled={isUpdatingConsultation}
+                        disabled={isUpdatingConsultation || isEditSummarizing}
                     >
                         {isUpdatingConsultation ? "저장 중..." : "수정 저장"}
                     </button>

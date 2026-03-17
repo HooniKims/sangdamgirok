@@ -464,3 +464,10 @@ http://localhost:3000
   - `app/globals.css`: `textarea`, `.scrollable-input`, `[contenteditable="true"]`에 `overflow-y: auto`, `overscroll-behavior: contain`, `-webkit-overflow-scrolling: touch`, `touch-action: pan-y` 적용
   - `app/globals.css`: 모바일 구간(`@media (max-width: 767px)`)에서 `input`, `textarea`, `select`, `.input-field`를 `font-size: 16px !important`로 고정해 iOS 확대/스크롤 간섭을 방지
   - `app/globals.css`: 모바일에서 스크롤 가능한 입력 영역에 `transform: translateZ(0)`를 추가해 스크롤 안정성 보강
+
+### 18. 상담 수정 폼에서도 AI 요약 지원 (2026-03-17)
+- **문제**: 새 상담 작성 시에는 AI 요약을 사용할 수 있지만, 기존 상담을 수정할 때는 AI 요약을 다시 생성하거나 함께 수정할 수 없었음
+- **해결**:
+  - `components/dashboard.tsx`: 공통 `summarizeConsultationContent` 헬퍼를 만들어 신규 작성/수정 폼이 같은 AI 요약 로직을 재사용하도록 정리
+  - `components/dashboard.tsx`: 수정 폼에 AI 모델 선택, `AI 요약 다시 생성` 버튼, 요약 편집 textarea 추가
+  - `components/dashboard.tsx`: 수정 저장 시 내용/주제가 바뀌었는데 요약을 다시 생성하지 않은 경우 기존 요약은 자동 제거하고, 새로 생성하거나 직접 수정한 요약은 함께 저장하도록 로직 보강
