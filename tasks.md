@@ -457,3 +457,10 @@ http://localhost:3000
   - `utils/behaviorRecordPrompt.ts`: `normalizeBehaviorDraftText`에서 본문 앞 날짜 패턴 자동 제거 로직 추가
   - `utils/behaviorRecordPrompt.ts`: `validateBehaviorDraft`에 과거형(~했다 등) 및 날짜 포함 여부 검증 패턴 추가
   - 이를 통해 소형 모델에서도 명사형 종결 및 날짜 없는 본문 출력을 엄격히 강제함
+
+### 17. 모바일 입력창 내부 스크롤 고정 (2026-03-17)
+- **문제**: 모바일에서 textarea/입력 영역에 커서가 있는 상태로 위아래 스크롤 시, 입력창 내부가 아니라 페이지 전체 스크롤이 먼저 움직일 수 있음
+- **해결**:
+  - `app/globals.css`: `textarea`, `.scrollable-input`, `[contenteditable="true"]`에 `overflow-y: auto`, `overscroll-behavior: contain`, `-webkit-overflow-scrolling: touch`, `touch-action: pan-y` 적용
+  - `app/globals.css`: 모바일 구간(`@media (max-width: 767px)`)에서 `input`, `textarea`, `select`, `.input-field`를 `font-size: 16px !important`로 고정해 iOS 확대/스크롤 간섭을 방지
+  - `app/globals.css`: 모바일에서 스크롤 가능한 입력 영역에 `transform: translateZ(0)`를 추가해 스크롤 안정성 보강

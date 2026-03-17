@@ -119,6 +119,18 @@ body {
 }
 
 /* ============================================
+   Mobile Input Scroll Fix
+   ============================================ */
+textarea,
+.scrollable-input,
+[contenteditable="true"] {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+}
+
+/* ============================================
    Layout Utilities
    ============================================ */
 .container {
@@ -1282,6 +1294,22 @@ body {
 @media (max-width: 767px) {
     :root {
         --header-height: 56px;
+    }
+
+    input,
+    textarea,
+    select,
+    .input-field {
+        font-size: 16px !important;
+    }
+
+    textarea.input-field,
+    .scrollable-input,
+    [contenteditable="true"] {
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        transform: translateZ(0);
     }
 
     /* 컨테이너 패딩 축소 */
