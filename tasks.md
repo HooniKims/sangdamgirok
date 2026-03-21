@@ -84,8 +84,7 @@ sangdam/
 
 ### 4. AI 요약 기능
 - [x] Ollama OpenAI 호환 API 연동
-- [x] 모델 선택 기능 (Gemma 3, Qwen 3, Llama 3.1, GLM-4 등)
-- [x] GLM-4 9B Q8 모델 추가 (한중 이중언어 강점)
+- [x] 모델 선택 기능 (Gemma 3, Qwen 3, Llama 3.1 등)
 - [x] 상담 내용 자동 정리 (포멀한 문체로 변환)
 - [x] 마크다운 미사용 - 가독성 높은 특수 기호 사용
 - [x] 출력 형식:
@@ -471,3 +470,5 @@ http://localhost:3000
   - `components/dashboard.tsx`: 공통 `summarizeConsultationContent` 헬퍼를 만들어 신규 작성/수정 폼이 같은 AI 요약 로직을 재사용하도록 정리
   - `components/dashboard.tsx`: 수정 폼에 AI 모델 선택, `AI 요약 다시 생성` 버튼, 요약 편집 textarea 추가
   - `components/dashboard.tsx`: 수정 저장 시 내용/주제가 바뀌었는데 요약을 다시 생성하지 않은 경우 기존 요약은 자동 제거하고, 새로 생성하거나 직접 수정한 요약은 함께 저장하도록 로직 보강
+- **2026-03-22**:
+  - 로컬 LLM 모델 목록에서 `glm4:9b-chat-q8_0` 모델 삭제 및 GitHub 동기화.
