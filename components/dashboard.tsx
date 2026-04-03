@@ -187,6 +187,9 @@ const getBehaviorStatusLabel = (status: BehaviorDraftStatus) => {
 const buildBehaviorRuleErrorMessage = (violations: string[]) =>
     `행발 필수 규칙을 충족하지 못했습니다: ${violations.join(" / ") || "세부 사유를 확인할 수 없습니다."}`
 
+const formatModelOptionLabel = (model: { name: string; description: string }) =>
+    `${model.name} - ${model.description}`
+
 const EMPTY_EDIT_FORM: ConsultationEditForm = {
     time: "",
     studentId: "",
@@ -511,7 +514,7 @@ export default function Dashboard() {
             // 3. Firebase Auth 계정 삭제
             try {
                 await deleteUser(user)
-            } catch (authError: any) {
+            } catch (authError: unknown) {
                 // Auth 계정 삭제 실패 시 프로필 복원 (롤백)
                 if (profileData) {
                     await setDoc(profileRef, profileData)
@@ -1062,7 +1065,7 @@ export default function Dashboard() {
                     >
                         {AVAILABLE_MODELS.map(m => (
                             <option key={m.id} value={m.id}>
-                                {m.name} - {m.description}
+                                {formatModelOptionLabel(m)}
                             </option>
                         ))}
                     </select>
@@ -1869,7 +1872,7 @@ export default function Dashboard() {
                                                 >
                                                     {AVAILABLE_MODELS.map(m => (
                                                         <option key={m.id} value={m.id}>
-                                                            {m.name} - {m.description}
+                                                            {formatModelOptionLabel(m)}
                                                         </option>
                                                     ))}
                                                 </select>
@@ -1986,7 +1989,7 @@ export default function Dashboard() {
                                         >
                                             {AVAILABLE_MODELS.map(model => (
                                                 <option key={model.id} value={model.id}>
-                                                    {model.name}
+                                                    {formatModelOptionLabel(model)}
                                                 </option>
                                             ))}
                                         </select>

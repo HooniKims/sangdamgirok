@@ -98,12 +98,12 @@ const OLLAMA_API_KEY = "YOUR_API_KEY_HERE";
 
 // ===== 사용 가능한 모델 목록 =====
 export const AVAILABLE_MODELS = [
-    { id: "qwen3:8b",              name: "Qwen 3 8B (추천)",    description: "균형 잡힌 성능" },
-    { id: "gemma3:12b-it-q8_0",    name: "Gemma 3 12B Q8",      description: "최고 품질 (13GB)" },
-    { id: "gemma3:12b-it-q4_K_M",  name: "Gemma 3 12B Q4",      description: "고품질 (8GB)" },
-    { id: "gemma3:4b-it-q4_K_M",   name: "Gemma 3 4B",          description: "경량 (3.3GB)" },
-    { id: "qwen3:4b",              name: "Qwen 3 4B",           description: "경량 빠른 응답" },
-    { id: "llama3.1:8b",           name: "Llama 3.1 8B",        description: "범용 모델" },
+    { id: "gemma4:E4B",            name: "Gemma 4 E4B (기본 추천)", description: "비교 기준 · 응답 속도 빠름 · 품질 보통" },
+    { id: "gemma4:E2B",            name: "Gemma 4 E2B (더 빠른 경량형)", description: "기본보다 빠름 · 품질은 낮음" },
+    { id: "qwen3:4b",              name: "Qwen 3 4B (빠른 대안)", description: "기본보다 조금 빠름 · 품질은 약간 낮음" },
+    { id: "gemma3:4b-it-q4_K_M",   name: "Gemma 3 4B (안정적 경량형)", description: "기본과 비슷함 · 품질은 약간 낮음" },
+    { id: "qwen3:8b",              name: "Qwen 3 8B (품질 우선)", description: "기본보다 느림 · 품질은 높음" },
+    { id: "gemma3:12b-it-q8_0",    name: "Gemma 3 12B Q8 (최고 품질)", description: "기본보다 많이 느림 · 품질은 가장 높음" },
 ];
 
 export const DEFAULT_MODEL = AVAILABLE_MODELS[0].id;

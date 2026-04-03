@@ -84,7 +84,7 @@ sangdam/
 
 ### 4. AI 요약 기능
 - [x] Ollama OpenAI 호환 API 연동
-- [x] 모델 선택 기능 (Gemma 3, Qwen 3, Llama 3.1 등)
+- [x] 모델 선택 기능 (Gemma 4, Gemma 3, Qwen 3 등)
 - [x] 상담 내용 자동 정리 (포멀한 문체로 변환)
 - [x] 마크다운 미사용 - 가독성 높은 특수 기호 사용
 - [x] 출력 형식:
@@ -472,3 +472,11 @@ http://localhost:3000
   - `components/dashboard.tsx`: 수정 저장 시 내용/주제가 바뀌었는데 요약을 다시 생성하지 않은 경우 기존 요약은 자동 제거하고, 새로 생성하거나 직접 수정한 요약은 함께 저장하도록 로직 보강
 - **2026-03-22**:
   - 로컬 LLM 모델 목록에서 `glm4:9b-chat-q8_0` 모델 삭제 및 GitHub 동기화.
+
+### 19. 로컬 LLM 모델 목록 재정비 (2026-04-03)
+- **문제**: 기존 모델 목록에 더 이상 쓰지 않는 `llama3.1:8b`, `gemma3:12b-it-q4_K_M`가 남아 있고, 새 기준 모델인 Gemma 4 계열이 반영되지 않았음.
+- **해결**:
+  - `utils/ollamaClient.ts`: `llama3.1:8b`, `gemma3:12b-it-q4_K_M`를 제거하고 `gemma4:E2B`, `gemma4:E4B`를 추가.
+  - `utils/ollamaClient.ts`: 기본 모델을 `gemma4:E4B`로 변경하고, 초보자도 비교하기 쉽도록 설명을 `기본 모델 대비 응답 속도/품질` 중심으로 재정리.
+  - `components/dashboard.tsx`: 세 곳의 모델 선택 드롭다운 모두에서 `모델명 + 설명`이 동일하게 보이도록 옵션 라벨 통일.
+  - `local-llm-api-guide.md`: 재사용 가이드의 예시 모델 목록도 현재 코드와 동일하게 동기화.

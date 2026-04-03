@@ -19,15 +19,15 @@ export type StudentBehaviorPromptInput = {
 
 const DEFAULT_MAX_CONSULTATIONS = 20;
 const MAX_NOTE_CHARS = 240;
-const DEFAULT_LENGTH_GUIDE = "본문은 반드시 400자 이상 500자 이하로 작성하세요.";
 export const MAX_BEHAVIOR_REWRITE_ATTEMPTS = 4;
 export const DEFAULT_BEHAVIOR_MIN_LENGTH = 400;
 export const DEFAULT_BEHAVIOR_MAX_LENGTH = 500;
+const DEFAULT_LENGTH_GUIDE = `본문은 반드시 ${DEFAULT_BEHAVIOR_MIN_LENGTH}자 이상 ${DEFAULT_BEHAVIOR_MAX_LENGTH}자 이하로 작성하세요.`;
 
 const HANGUL_START = 0xac00;
 const HANGUL_END = 0xd7a3;
 const JONGSEONG_MIEUM = 16;
-const DISALLOWED_SUBJECT_PATTERN = /(학생은|학생이|OO는|OO가)/;
+const DISALLOWED_SUBJECT_PATTERN = /(학생은|학생이|OO는|OO가)\s*/g;
 const DISALLOWED_NEGATIVE_PATTERN = /(하지만|임에도|부족하|미흡하|문제점|결함|한계)/;
 const DISALLOWED_META_PATTERN = /(메타|분석|검증|글자수|자체\s*점검|체크리스트)/;
 const MARKDOWN_LIKE_PATTERN = /(^|\s)([-*•]|#{1,6}|\d+\.)\s+/m;
@@ -56,7 +56,7 @@ export const normalizeBehaviorDraftText = (text: string): string => {
         .trim();
 
     // 내부적으로 주어 표현 강제 삭제
-    result = result.replace(/(학생은|학생이|OO는|OO가)\s*/g, "");
+    result = result.replace(DISALLOWED_SUBJECT_PATTERN, "");
 
     // 본문 앞에 붙은 날짜 제거 (예: "2026년 2월 28일, ...")
     result = result.replace(/^\s*\d{4}년\s*\d{1,2}월\s*\d{1,2}일[,.]?\s*/g, "");
@@ -70,16 +70,7 @@ const splitSentences = (text: string): string[] =>
         .map(item => item.trim())
         .filter(Boolean);
 
-export const validateBehaviorDraft = (
-    text: string,
-    {
-        minLength = DEFAULT_BEHAVIOR_MIN_LENGTH,
-        maxLength = DEFAULT_BEHAVIOR_MAX_LENGTH,
-    }: {
-        minLength?: number;
-        maxLength?: number;
-    } = {}
-): BehaviorDraftValidationResult => {
+export const validateBehaviorDraft = (text: string): BehaviorDraftValidationResult => {
     const hasLineBreakInRaw = /\r|\n/.test(text);
     const normalized = normalizeBehaviorDraftText(text);
     const violations: string[] = [];
@@ -98,8 +89,8 @@ export const validateBehaviorDraft = (
     }
 
     // 글자수는 검증 실패 조건에서 제외하고, 길이 안내만 프롬프트 유지
-    // if (normalized.length < minLength || normalized.length > maxLength) {
-    //     violations.push(`글자 수가 ${minLength}~${maxLength}자 범위를 벗어남(현재 ${normalized.length}자).`);
+    // if (normalized.length < DEFAULT_BEHAVIOR_MIN_LENGTH || normalized.length > DEFAULT_BEHAVIOR_MAX_LENGTH) {
+    //     violations.push(`글자 수가 ${DEFAULT_BEHAVIOR_MIN_LENGTH}~${DEFAULT_BEHAVIOR_MAX_LENGTH}자 범위를 벗어남(현재 ${normalized.length}자).`);
     // }
 
     // 삭제 처리하므로 실패에 걸리지 않도록 방지
