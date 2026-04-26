@@ -28,7 +28,7 @@ import {
     Copy
 } from "lucide-react"
 import { Consultation, TeacherProfile } from "@/types"
-import { generateWithRetry, AVAILABLE_MODELS, DEFAULT_MODEL } from "@/utils/ollamaClient"
+import { generateWithRetry, AVAILABLE_MODELS, DEFAULT_MODEL, getModelOptionLabel } from "@/utils/localLlmClient"
 import { cleanMetaInfo } from "@/utils/textProcessor"
 import { buildEmailLockKey, normalizeEmail } from "@/utils/authLock"
 import { useTheme } from "@/components/ThemeProvider"
@@ -186,9 +186,6 @@ const getBehaviorStatusLabel = (status: BehaviorDraftStatus) => {
 
 const buildBehaviorRuleErrorMessage = (violations: string[]) =>
     `행발 필수 규칙을 충족하지 못했습니다: ${violations.join(" / ") || "세부 사유를 확인할 수 없습니다."}`
-
-const formatModelOptionLabel = (model: { name: string; description: string }) =>
-    `${model.name} - ${model.description}`
 
 const EMPTY_EDIT_FORM: ConsultationEditForm = {
     time: "",
@@ -1065,7 +1062,7 @@ export default function Dashboard() {
                     >
                         {AVAILABLE_MODELS.map(m => (
                             <option key={m.id} value={m.id}>
-                                {formatModelOptionLabel(m)}
+                                {getModelOptionLabel(m)}
                             </option>
                         ))}
                     </select>
@@ -1872,7 +1869,7 @@ export default function Dashboard() {
                                                 >
                                                     {AVAILABLE_MODELS.map(m => (
                                                         <option key={m.id} value={m.id}>
-                                                            {formatModelOptionLabel(m)}
+                                                            {getModelOptionLabel(m)}
                                                         </option>
                                                     ))}
                                                 </select>
@@ -1989,7 +1986,7 @@ export default function Dashboard() {
                                         >
                                             {AVAILABLE_MODELS.map(model => (
                                                 <option key={model.id} value={model.id}>
-                                                    {formatModelOptionLabel(model)}
+                                                    {getModelOptionLabel(model)}
                                                 </option>
                                             ))}
                                         </select>

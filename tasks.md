@@ -15,7 +15,7 @@
 | **스타일링** | 순수 CSS (Pure CSS) - Tailwind CSS 미사용 |
 | **인증** | Firebase Authentication (Email/Password + Google) |
 | **데이터베이스** | Firebase Firestore |
-| **AI** | 로컬 LLM API (Ollama OpenAI 호환 엔드포인트) |
+| **AI** | LM Studio 로컬 LLM API (Chat Completions 호환 엔드포인트) |
 | **폰트** | Google Fonts - Noto Sans KR |
 | **아이콘** | Lucide React |
 | **언어** | TypeScript |
@@ -41,11 +41,12 @@ sangdam/
 │   └── firebase.ts               # Firebase 설정
 ├── utils/
 │   ├── authLock.ts               # 로그인 잠금 키/정규화 유틸
+│   ├── localLlmClient.ts         # LM Studio 로컬 LLM API/모델 설정 유틸
 │   └── behaviorRecordPrompt.ts   # 행발 프롬프트/검증 유틸
 ├── types/
 │   └── index.ts                  # TypeScript 타입 정의
 ├── firestore.rules               # Firestore 보안 규칙
-├── .env.local                    # 환경 변수 (Firebase, Ollama API 키)
+├── .env.local                    # 환경 변수 (Firebase, 로컬 LLM API 키)
 └── package.json
 ```
 
@@ -83,8 +84,8 @@ sangdam/
 - [x] 교사 계정별 상담 데이터 분리 (`teacherId` 기준 조회/저장)
 
 ### 4. AI 요약 기능
-- [x] Ollama OpenAI 호환 API 연동
-- [x] 모델 선택 기능 (Gemma 4, Gemma 3, Qwen 3 등)
+- [x] LM Studio 로컬 LLM Chat Completions 호환 API 연동
+- [x] 모델 선택 기능 (Gemma 4 E4B, Gemma 4 E2B, Gemma 4 26B Q4)
 - [x] 상담 내용 자동 정리 (포멀한 문체로 변환)
 - [x] 마크다운 미사용 - 가독성 높은 특수 기호 사용
 - [x] 출력 형식:
@@ -166,9 +167,8 @@ NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 
-# Ollama API
-NEXT_PUBLIC_OLLAMA_API_URL=https://api.alluser.site
-NEXT_PUBLIC_OLLAMA_API_KEY=your_ollama_api_key
+# Local LLM API
+NEXT_PUBLIC_OLLAMA_API_KEY=your_local_llm_api_key
 ```
 
 ---
@@ -480,3 +480,14 @@ http://localhost:3000
   - `utils/ollamaClient.ts`: 기본 모델을 `gemma4:E4B`로 변경하고, 초보자도 비교하기 쉽도록 설명을 `기본 모델 대비 응답 속도/품질` 중심으로 재정리.
   - `components/dashboard.tsx`: 세 곳의 모델 선택 드롭다운 모두에서 `모델명 + 설명`이 동일하게 보이도록 옵션 라벨 통일.
   - `local-llm-api-guide.md`: 재사용 가이드의 예시 모델 목록도 현재 코드와 동일하게 동기화.
+
+### 20. AI 생성 기능 LM Studio 로컬 LLM 전용 정리 (2026-04-26)
+- **문제**: 이전 로컬 LLM 모델 목록과 프록시 주소가 남아 있어, 현재 운영 기준인 LM Studio 3개 모델 전용 구조와 맞지 않았음.
+- **해결**:
+  - `utils/ollamaClient.ts`를 제거하고 `utils/localLlmClient.ts`로 교체.
+  - 모든 AI 요청 endpoint를 `https://lm.alluser.site/v1/chat/completions`로 고정.
+  - 모델 목록을 `gemma4:e4b`, `gemma4:e2b`, `lmstudio:gemma-4-26b-a4b-it-q4ks` 3개만 남기고, 실제 요청 model을 각각 `google/gemma-4-e4b`, `google/gemma-4-e2b`, `gemma-4-26b-a4b-it`로 매핑.
+  - 기본 선택 모델을 `gemma4:e4b`로 고정하고, 공통 `getModelOptionLabel()` 헬퍼로 드롭다운 라벨을 통일.
+  - 요청 body에 `max_tokens`, `reasoning_effort: "none"`, `stream: false` 기본 흐름을 반영.
+  - `openai` 패키지 의존성을 제거하고, 로컬 LLM 계약 검증용 `npm test` 스크립트 및 `tests/local-llm-config.test.mjs`를 추가.
+  - `local-llm-api-guide.md`를 현재 LM Studio 전용 구조 기준으로 재작성.

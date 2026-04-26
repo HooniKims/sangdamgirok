@@ -1,60 +1,98 @@
-// ===== 설정 (Vercel 환경 변수에서 읽음) =====
-const OLLAMA_API_URL = process.env.NEXT_PUBLIC_OLLAMA_API_URL || "https://api.alluser.site";
-const OLLAMA_API_KEY = process.env.NEXT_PUBLIC_OLLAMA_API_KEY || "";
+// ===== LM Studio 로컬 LLM 설정 =====
+export const LOCAL_LLM_CHAT_COMPLETIONS_ENDPOINT = "https://lm.alluser.site/v1/chat/completions";
+const LOCAL_LLM_API_KEY = process.env.NEXT_PUBLIC_OLLAMA_API_KEY || "";
 
 // ===== 사용 가능한 모델 목록 =====
 export const AVAILABLE_MODELS = [
-    { id: "gemma4:E4B", name: "Gemma 4 E4B (기본 추천)", description: "비교 기준 · 응답 속도 빠름 · 품질 보통" },
-    { id: "gemma4:E2B", name: "Gemma 4 E2B (더 빠른 경량형)", description: "기본보다 빠름 · 품질은 낮음" },
-    { id: "qwen3:4b", name: "Qwen 3 4B (빠른 대안)", description: "기본보다 조금 빠름 · 품질은 약간 낮음" },
-    { id: "gemma3:4b-it-q4_K_M", name: "Gemma 3 4B (안정적 경량형)", description: "기본과 비슷함 · 품질은 약간 낮음" },
-    { id: "qwen3:8b", name: "Qwen 3 8B (품질 우선)", description: "기본보다 느림 · 품질은 높음" },
-    { id: "gemma3:12b-it-q8_0", name: "Gemma 3 12B Q8 (최고 품질)", description: "기본보다 많이 느림 · 품질은 가장 높음" },
-];
+    {
+        id: "gemma4:e4b",
+        name: "Gemma 4 E4B",
+        description: "기본 모델, 기준 속도기준 품질",
+        requestModel: "google/gemma-4-e4b",
+        maxTokens: 3072,
+    },
+    {
+        id: "gemma4:e2b",
+        name: "Gemma 4 E2B",
+        description: "기본보다 빠름, 품질은 간단",
+        requestModel: "google/gemma-4-e2b",
+        maxTokens: 2048,
+    },
+    {
+        id: "lmstudio:gemma-4-26b-a4b-it-q4ks",
+        name: "Gemma 4 26B Q4",
+        description: "느리지만 품질 높음",
+        requestModel: "gemma-4-26b-a4b-it",
+        maxTokens: 4096,
+    },
+] as const;
 
-export const DEFAULT_MODEL = AVAILABLE_MODELS[0].id;
+export type LocalModelConfig = (typeof AVAILABLE_MODELS)[number];
+export type LocalModelId = LocalModelConfig["id"];
+
+export const DEFAULT_MODEL = "gemma4:e4b";
+
+export function getLocalModelConfig(model?: string): LocalModelConfig {
+    return AVAILABLE_MODELS.find(option => option.id === model) ?? AVAILABLE_MODELS[0];
+}
+
+export function getModelOptionLabel(model: Pick<LocalModelConfig, "name" | "description">): string {
+    return `${model.name} - ${model.description}`;
+}
 
 /**
- * Ollama API 1회 호출 (OpenAI 호환 엔드포인트)
- * 
+ * LM Studio 로컬 LLM API 1회 호출
+ *
  * @param systemMessage - 시스템 프롬프트
  * @param userPrompt    - 사용자 프롬프트
- * @param model         - 모델 ID (기본값: DEFAULT_MODEL)
- * @param options       - 추가 옵션 { temperature, stream }
+ * @param model         - 화면 표시용 모델 ID (기본값: DEFAULT_MODEL)
+ * @param options       - 추가 옵션 { temperature, stream, maxTokens }
  * @returns 생성된 텍스트
  */
-export async function callOllamaAPI(
+export async function callLocalLlmAPI(
     systemMessage: string,
     userPrompt: string,
     model?: string,
-    options: { temperature?: number; stream?: boolean } = {}
+    options: { temperature?: number; stream?: boolean; maxTokens?: number } = {}
 ): Promise<string> {
+    const modelConfig = getLocalModelConfig(model || DEFAULT_MODEL);
     const { temperature = 0.7, stream = false } = options;
+    const maxTokens = Math.max(options.maxTokens ?? modelConfig.maxTokens, modelConfig.maxTokens);
+    const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+    };
 
-    const res = await fetch(`${OLLAMA_API_URL}/v1/chat/completions`, {
+    if (LOCAL_LLM_API_KEY) {
+        headers["X-API-Key"] = LOCAL_LLM_API_KEY;
+    }
+
+    const res = await fetch(LOCAL_LLM_CHAT_COMPLETIONS_ENDPOINT, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": OLLAMA_API_KEY,
-        },
+        headers,
         body: JSON.stringify({
-            model: model || DEFAULT_MODEL,
+            model: modelConfig.requestModel,
             messages: [
                 { role: "system", content: systemMessage },
                 { role: "user", content: userPrompt },
             ],
             temperature,
+            max_tokens: maxTokens,
+            reasoning_effort: "none",
             stream,
         }),
     });
 
     if (!res.ok) {
-        let errorMessage = `서버 오류 (${res.status})`;
+        let errorMessage = `로컬 LLM 서버 오류 (${res.status})`;
         try {
             const errorData = await res.json();
-            errorMessage = errorData.error || errorMessage;
+            if (typeof errorData.error === "string") {
+                errorMessage = errorData.error;
+            } else if (typeof errorData.message === "string") {
+                errorMessage = errorData.message;
+            }
         } catch {
-            // 무시
+            // 응답 본문 파싱 실패 시 기본 오류 메시지를 사용합니다.
         }
         throw new Error(errorMessage);
     }
@@ -92,7 +130,7 @@ export async function generateWithInstructions({
         finalPrompt = prefix + prompt + suffix;
     }
 
-    return callOllamaAPI(finalSystemMessage, finalPrompt, model);
+    return callLocalLlmAPI(finalSystemMessage, finalPrompt, model);
 }
 
 /**
@@ -128,11 +166,11 @@ export async function generateWithRetry(params: {
 
         const retryPrompt = `다음 텍스트는 문장이 중간에 끊겼습니다. 같은 내용을 완전한 문장으로 끝나도록 다시 작성하세요. 반드시 종결어미와 마침표로 끝내세요. 오직 본문만 출력하세요.\n\n불완전한 텍스트:\n${content}`;
 
-        const retryContent = await callOllamaAPI(params.systemMessage, retryPrompt, params.model);
+        const retryContent = await callLocalLlmAPI(params.systemMessage, retryPrompt, params.model);
 
         if (retryContent.trim() && endsWithCompleteSentence(retryContent)) {
             content = retryContent;
-            console.log(`[재시도 성공] 완전한 문장으로 수정됨`);
+            console.log("[재시도 성공] 완전한 문장으로 수정됨");
             break;
         } else if (retryContent.trim()) {
             content = retryContent;

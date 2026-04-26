@@ -6,7 +6,7 @@
 - `app/`: 라우트, 레이아웃, 전역 스타일, API 핸들러를 포함합니다 (`app/api/summarize/route.ts`는 현재 사용 중단 상태이며 `410`을 반환합니다).
 - `components/`: 클라이언트 UI 컴포넌트입니다 (예: `auth-guard.tsx`, `dashboard.tsx`).
 - `lib/`: 공통 서비스 설정입니다 (`lib/firebase.ts`의 Firebase 초기화 포함).
-- `utils/`: AI/Ollama API 헬퍼와 텍스트 후처리 로직입니다.
+- `utils/`: LM Studio 로컬 LLM API 헬퍼와 텍스트 후처리 로직입니다.
 - `types/`: 공용 TypeScript 인터페이스입니다.
 - `public/`: 정적 에셋입니다.
 - `local-llm-api-guide.md`: 로컬 LLM 연동 노트입니다.
@@ -49,4 +49,4 @@ PR에는 다음 내용을 포함해야 합니다:
 
 ## 보안 및 설정 팁
 - 비밀값은 `.env.local`에만 보관하고 `.env*` 파일은 커밋하지 마세요.
-- 로컬 실행 전 Firebase 및 Ollama 관련 필수 `NEXT_PUBLIC_*` 환경 변수가 설정되어 있는지 확인하세요.
+- 로컬 실행 전 Firebase 및 로컬 LLM 관련 필수 `NEXT_PUBLIC_*` 환경 변수가 설정되어 있는지 확인하세요.
