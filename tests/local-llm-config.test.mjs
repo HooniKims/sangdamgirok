@@ -27,20 +27,20 @@ test("local LLM client exposes only the approved LM Studio model contract", () =
 
     const expectedModels = [
         {
-            id: "gemma4:e4b",
-            name: "Gemma 4 E4B",
-            description: "기본 모델, 기준 속도기준 품질",
-            requestModel: "google/gemma-4-e4b",
-            maxTokens: 3072,
-            label: "Gemma 4 E4B - 기본 모델, 기준 속도기준 품질",
-        },
-        {
             id: "gemma4:e2b",
             name: "Gemma 4 E2B",
-            description: "기본보다 빠름, 품질은 간단",
+            description: "기본 모델, 빠르고 안정적",
             requestModel: "google/gemma-4-e2b",
             maxTokens: 2048,
-            label: "Gemma 4 E2B - 기본보다 빠름, 품질은 간단",
+            label: "Gemma 4 E2B - 기본 모델, 빠르고 안정적",
+        },
+        {
+            id: "gemma4:e4b",
+            name: "Gemma 4 E4B",
+            description: "품질 높음, 설명 출력 가능성 있음",
+            requestModel: "google/gemma-4-e4b",
+            maxTokens: 3072,
+            label: "Gemma 4 E4B - 품질 높음, 설명 출력 가능성 있음",
         },
         {
             id: "lmstudio:gemma-4-26b-a4b-it-q4ks",
@@ -57,12 +57,14 @@ test("local LLM client exposes only the approved LM Studio model contract", () =
         expectedModels.length,
         "허용된 3개 모델만 남아 있어야 합니다.",
     );
-    assert.match(source, /export const DEFAULT_MODEL = "gemma4:e4b"/);
+    assert.match(source, /export const DEFAULT_MODEL = "gemma4:e2b"/);
     assert.match(source, /LOCAL_LLM_CHAT_COMPLETIONS_ENDPOINT = "https:\/\/lm\.alluser\.site\/v1\/chat\/completions"/);
     assert.match(source, /model: modelConfig\.requestModel/);
     assert.match(source, /reasoning_effort: "none"/);
     assert.match(source, /stream/);
     assert.match(source, /max_tokens: maxTokens/);
+    assert.match(source, /type LocalLlmRequestOptions = \{ temperature\?: number; stream\?: boolean; maxTokens\?: number \}/);
+    assert.match(source, /options: LocalLlmRequestOptions = \{\}/);
 
     for (const model of expectedModels) {
         assert.ok(availableModelsBlock.includes(`id: "${model.id}"`), `${model.id} 표시 ID가 필요합니다.`);

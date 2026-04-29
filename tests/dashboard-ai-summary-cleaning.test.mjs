@@ -27,4 +27,8 @@ test("dashboard cleans saved AI summaries before editing, saving, and rendering"
         2,
         "목록과 학생 상세 화면 모두 저장된 AI 요약을 정리해서 렌더링해야 합니다.",
     );
+    assert.ok(
+        dashboardSource.includes("temperature: 0.2"),
+        "상담 요약 생성은 e4b에서도 사고 과정 출력이 줄어들도록 낮은 temperature를 사용해야 합니다.",
+    );
 });

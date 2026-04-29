@@ -85,7 +85,7 @@ sangdam/
 
 ### 4. AI 요약 기능
 - [x] LM Studio 로컬 LLM Chat Completions 호환 API 연동
-- [x] 모델 선택 기능 (Gemma 4 E4B, Gemma 4 E2B, Gemma 4 26B Q4)
+- [x] 모델 선택 기능 (Gemma 4 E2B, Gemma 4 E4B, Gemma 4 26B Q4)
 - [x] 상담 내용 자동 정리 (포멀한 문체로 변환)
 - [x] 마크다운 미사용 - 가독성 높은 특수 기호 사용
 - [x] 출력 형식:
@@ -516,3 +516,12 @@ http://localhost:3000
   - `components/dashboard.tsx`: `getConsultationSummaryText` 공통 헬퍼를 추가해 생성 저장, 수정 폼 로드, 수정 저장, 목록 렌더링, 학생 상세 렌더링 모두 `cleanConsultationSummaryOutput`을 거치도록 변경.
   - `tests/text-processor.test.mjs`: `생각 과정 시뮬레이션`으로 시작하고 최종 `【상담 개요】`가 뒤에 붙는 실제 사례 형태의 회귀 테스트 추가.
   - `tests/dashboard-ai-summary-cleaning.test.mjs`: 저장된 AI 요약이 편집/저장/렌더링 경로에서 모두 정리되는지 소스 계약 테스트 추가.
+
+### 24. 기본 AI 모델을 Gemma 4 E2B로 변경 및 E4B 요약 안정화 (2026-04-29)
+- **문제**: `gemma4:e2b`에서는 상담 요약이 안정적으로 나오지만, `gemma4:e4b`에서는 사고 과정/설명 문구가 출력될 수 있었음.
+- **해결**:
+  - `utils/localLlmClient.ts`: 기본 선택 모델을 `gemma4:e2b`로 변경하고, 모델 목록 순서와 설명을 현재 운영 기준에 맞게 정리.
+  - `components/dashboard.tsx`: 상담 요약 생성 호출에 `temperature: 0.2` 옵션을 전달해 `gemma4:e4b` 선택 시에도 설명식 출력 가능성을 낮춤.
+  - `utils/localLlmClient.ts`: `generateWithRetry`/`generateWithInstructions`가 temperature 등 요청 옵션을 전달할 수 있도록 확장.
+  - `tests/local-llm-config.test.mjs` 및 `tests/dashboard-ai-summary-cleaning.test.mjs`: 기본 모델이 `gemma4:e2b`인지, 상담 요약 생성이 낮은 temperature를 사용하는지 검증하도록 갱신.
+  - `local-llm-api-guide.md`: 현재 기본 모델과 모델 설명을 `gemma4:e2b` 기준으로 업데이트.

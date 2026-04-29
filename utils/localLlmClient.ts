@@ -5,18 +5,18 @@ const LOCAL_LLM_API_KEY = process.env.NEXT_PUBLIC_OLLAMA_API_KEY || "";
 // ===== 사용 가능한 모델 목록 =====
 export const AVAILABLE_MODELS = [
     {
-        id: "gemma4:e4b",
-        name: "Gemma 4 E4B",
-        description: "기본 모델, 기준 속도기준 품질",
-        requestModel: "google/gemma-4-e4b",
-        maxTokens: 3072,
-    },
-    {
         id: "gemma4:e2b",
         name: "Gemma 4 E2B",
-        description: "기본보다 빠름, 품질은 간단",
+        description: "기본 모델, 빠르고 안정적",
         requestModel: "google/gemma-4-e2b",
         maxTokens: 2048,
+    },
+    {
+        id: "gemma4:e4b",
+        name: "Gemma 4 E4B",
+        description: "품질 높음, 설명 출력 가능성 있음",
+        requestModel: "google/gemma-4-e4b",
+        maxTokens: 3072,
     },
     {
         id: "lmstudio:gemma-4-26b-a4b-it-q4ks",
@@ -29,8 +29,9 @@ export const AVAILABLE_MODELS = [
 
 export type LocalModelConfig = (typeof AVAILABLE_MODELS)[number];
 export type LocalModelId = LocalModelConfig["id"];
+type LocalLlmRequestOptions = { temperature?: number; stream?: boolean; maxTokens?: number };
 
-export const DEFAULT_MODEL = "gemma4:e4b";
+export const DEFAULT_MODEL = "gemma4:e2b";
 
 export function getLocalModelConfig(model?: string): LocalModelConfig {
     return AVAILABLE_MODELS.find(option => option.id === model) ?? AVAILABLE_MODELS[0];
@@ -53,7 +54,7 @@ export async function callLocalLlmAPI(
     systemMessage: string,
     userPrompt: string,
     model?: string,
-    options: { temperature?: number; stream?: boolean; maxTokens?: number } = {}
+    options: LocalLlmRequestOptions = {}
 ): Promise<string> {
     const modelConfig = getLocalModelConfig(model || DEFAULT_MODEL);
     const { temperature = 0.7, stream = false } = options;
@@ -110,11 +111,13 @@ export async function generateWithInstructions({
     prompt,
     additionalInstructions,
     model,
+    options,
 }: {
     systemMessage: string;
     prompt: string;
     additionalInstructions?: string;
     model?: string;
+    options?: LocalLlmRequestOptions;
 }): Promise<string> {
     // 추가 지침 → 시스템 메시지에 추가
     let finalSystemMessage = systemMessage;
@@ -130,7 +133,7 @@ export async function generateWithInstructions({
         finalPrompt = prefix + prompt + suffix;
     }
 
-    return callLocalLlmAPI(finalSystemMessage, finalPrompt, model);
+    return callLocalLlmAPI(finalSystemMessage, finalPrompt, model, options);
 }
 
 /**
@@ -151,6 +154,7 @@ export async function generateWithRetry(params: {
     prompt: string;
     additionalInstructions?: string;
     model?: string;
+    options?: LocalLlmRequestOptions;
 }): Promise<string> {
     let content = await generateWithInstructions(params);
 
@@ -166,7 +170,7 @@ export async function generateWithRetry(params: {
 
         const retryPrompt = `다음 텍스트는 문장이 중간에 끊겼습니다. 같은 내용을 완전한 문장으로 끝나도록 다시 작성하세요. 반드시 종결어미와 마침표로 끝내세요. 오직 본문만 출력하세요.\n\n불완전한 텍스트:\n${content}`;
 
-        const retryContent = await callLocalLlmAPI(params.systemMessage, retryPrompt, params.model);
+        const retryContent = await callLocalLlmAPI(params.systemMessage, retryPrompt, params.model, params.options);
 
         if (retryContent.trim() && endsWithCompleteSentence(retryContent)) {
             content = retryContent;

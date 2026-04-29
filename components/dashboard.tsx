@@ -422,6 +422,7 @@ export default function Dashboard() {
             systemMessage,
             prompt,
             model: selectedModel,
+            options: { temperature: 0.2 },
         })
 
         return cleanConsultationSummaryOutput(rawResult)
