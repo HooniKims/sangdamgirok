@@ -112,3 +112,30 @@ test("consultation summary cleaner ignores quoted format rules before the final 
 • 과학 탐구 활동에는 적극적으로 참여하나 발표 상황에서는 자신감 부족을 경험함.`,
     );
 });
+
+test("consultation summary cleaner removes explanatory review and final check messages", () => {
+    const { cleanConsultationSummaryOutput } = loadTextProcessor();
+    const raw = `이번에는 요청한 형식에 맞추어 상담 내용을 포멀하고 공식적인 문체로 재구성한 결과입니다.
+
+【상담 개요】
+학습 태도 및 과제 수행 상황 점검
+
+마크다운 기호 사용 금지: 준수함.
+검토 과정: 원본 상담 내용만 반영함.
+최종 점검 메시지: 형식 요구사항을 확인함.
+
+【상담 내용】
+• 학생은 최근 과제 제출이 늦어진 이유로 일정 관리의 어려움을 언급함.
+• 교사는 과제 수행 일정을 작게 나누어 확인하는 방안을 안내함.
+최종 점검: 상담 요약이 요청 형식에 맞게 작성됨.`;
+
+    assert.equal(
+        cleanConsultationSummaryOutput(raw),
+        `【상담 개요】
+학습 태도 및 과제 수행 상황 점검
+
+【상담 내용】
+• 학생은 최근 과제 제출이 늦어진 이유로 일정 관리의 어려움을 언급함.
+• 교사는 과제 수행 일정을 작게 나누어 확인하는 방안을 안내함.`,
+    );
+});

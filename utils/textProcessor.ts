@@ -36,7 +36,7 @@ export function cleanConsultationSummaryOutput(text: string): string {
     const summaryStart = finalOverviewSection >= 0 ? finalOverviewSection : finalContentSection;
     const summaryOnly = summaryStart >= 0 ? cleaned.slice(summaryStart).trim() : cleaned;
 
-    const metaLinePattern = /(?:요약\s*방식|규칙\s*준수|문체\s*변화|내용\s*구조화|내용구조화|구조화|작성\s*계획|작성계획|계획\s*검토|작성\s*방식|출력\s*형식|검토\s*결과|분석\s*결과)/;
+    const metaLinePattern = /(?:요청한\s*형식.*결과|재구성한\s*결과|요약\s*방식|규칙\s*준수|준수\s*함|문체\s*변화|내용\s*구조화|내용구조화|구조화\s*방식|작성\s*계획|작성계획|계획\s*검토|작성\s*방식|출력\s*형식|검토\s*과정|검토\s*결과|최종\s*점검|점검\s*메시지|분석\s*결과|마크다운\s*기호|사용\s*금지|형식\s*요구사항|요청\s*형식)/;
     const processListPattern = /^\s*(?:[-*]|\d+[.)])\s+/;
     let isDroppingProcessBlock = false;
 
@@ -67,6 +67,7 @@ export function cleanConsultationSummaryOutput(text: string): string {
             return true;
         })
         .join("\n")
+        .replace(/\n{3,}/g, "\n\n")
         .trim();
 }
 
