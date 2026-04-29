@@ -344,6 +344,8 @@ export default function Dashboard() {
         setIsSearchOpen(false)
     }
 
+    const getConsultationSummaryText = (value?: string | null) => cleanConsultationSummaryOutput(value || "")
+
     const handleTodayClick = () => {
         const today = new Date()
         setCurrentMonth(today)
@@ -461,7 +463,7 @@ export default function Dashboard() {
                 studentName: formData.studentName,
                 topic: formData.topic,
                 originalContent: formData.content,
-                aiSummary: withSummary ? summary : null,
+                aiSummary: withSummary ? getConsultationSummaryText(summary) : null,
                 createdAt: Timestamp.now(),
                 updatedAt: Timestamp.now(),
             })
@@ -583,7 +585,7 @@ export default function Dashboard() {
             topic: consultation.topic || "",
             content: consultation.originalContent || "",
         })
-        setEditSummary(consultation.aiSummary || "")
+        setEditSummary(getConsultationSummaryText(consultation.aiSummary))
         setIsEditSummarizing(false)
     }
 
@@ -642,8 +644,8 @@ export default function Dashboard() {
         const nextTopic = editFormData.topic.trim()
         const previousContent = (consultation.originalContent || "").trim()
         const previousTopic = (consultation.topic || "").trim()
-        const previousSummary = (consultation.aiSummary || "").trim()
-        const nextSummary = editSummary.trim()
+        const previousSummary = getConsultationSummaryText(consultation.aiSummary).trim()
+        const nextSummary = getConsultationSummaryText(editSummary).trim()
         const shouldResetSummary = previousContent !== nextContent || previousTopic !== nextTopic
         const shouldKeepEditedSummary = nextSummary.length > 0 && nextSummary !== previousSummary
         const nextAiSummary = shouldResetSummary
@@ -1803,7 +1805,7 @@ export default function Dashboard() {
                                                                                 <Sparkles style={{ width: '16px', height: '16px', color: 'var(--ai-summary-text)' }} />
                                                                                 <span className="text-sm font-bold" style={{ color: 'var(--ai-summary-text)' }}>AI 요약</span>
                                                                             </div>
-                                                                            <MarkdownRenderer content={c.aiSummary} />
+                                                                            <MarkdownRenderer content={getConsultationSummaryText(c.aiSummary)} />
                                                                         </div>
                                                                     )}
                                                                 </>
@@ -2285,7 +2287,7 @@ export default function Dashboard() {
                                                                         {c.aiSummary && (
                                                                             <div className="mt-3 bg-yellow-50 p-4 rounded-lg border border-yellow-100">
                                                                                 <span className="font-bold text-yellow-800 block mb-2 text-xs flex items-center gap-1"><Sparkles style={{ width: '12px', height: '12px' }} /> AI 요약</span>
-                                                                                <MarkdownRenderer content={c.aiSummary} />
+                                                                                <MarkdownRenderer content={getConsultationSummaryText(c.aiSummary)} />
                                                                             </div>
                                                                         )}
                                                                     </>

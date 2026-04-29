@@ -509,3 +509,10 @@ http://localhost:3000
   - `utils/textProcessor.ts`: 요청 형식 설명, 재구성 결과 안내, 마크다운 금지 확인, 검토 과정, 최종 점검, 점검 메시지 계열 문장을 제거하도록 상담 요약 후처리 강화.
   - `tests/text-processor.test.mjs`: 설명/검토/최종 점검 문구가 섞인 응답에서도 상담 요약 본문만 남는 회귀 테스트 추가.
   - 실제 LM Studio 호출 테스트에서 원본 응답과 후처리 결과 모두 `【상담 개요】`로 바로 시작하고 금지 설명 문구가 남지 않는 것을 확인.
+
+### 23. 저장된 AI 요약 표시 경로 정리 적용 (2026-04-29)
+- **문제**: 새로 생성한 요약은 정리되지만, 이미 Firestore에 저장된 `aiSummary`는 목록/학생 상세/수정 폼에서 그대로 표시되어 과거에 저장된 `생각 과정 시뮬레이션` 같은 설명 문구가 계속 보일 수 있었음.
+- **해결**:
+  - `components/dashboard.tsx`: `getConsultationSummaryText` 공통 헬퍼를 추가해 생성 저장, 수정 폼 로드, 수정 저장, 목록 렌더링, 학생 상세 렌더링 모두 `cleanConsultationSummaryOutput`을 거치도록 변경.
+  - `tests/text-processor.test.mjs`: `생각 과정 시뮬레이션`으로 시작하고 최종 `【상담 개요】`가 뒤에 붙는 실제 사례 형태의 회귀 테스트 추가.
+  - `tests/dashboard-ai-summary-cleaning.test.mjs`: 저장된 AI 요약이 편집/저장/렌더링 경로에서 모두 정리되는지 소스 계약 테스트 추가.

@@ -139,3 +139,29 @@ test("consultation summary cleaner removes explanatory review and final check me
 • 교사는 과제 수행 일정을 작게 나누어 확인하는 방안을 안내함.`,
     );
 });
+
+test("consultation summary cleaner removes thinking simulation text from saved summaries", () => {
+    const { cleanConsultationSummaryOutput } = loadTextProcessor();
+    const raw = `생각 과정 시뮬레이션
+
+1. 목표 확인: 학교 교사 역할로 학생 상담 기록을 포멀하고 공식적인 문체로 재정리한다.
+2. 형식 적용: 제목은 【】, 불릿은 •, 중요 키워드는 「」를 사용해야 한다.
+3. 내용 추출 및 요약을 진행한다.
+4. 검토: 모든 제약 조건을 준수했는지 확인한다.
+5. 최종 출력물 생성. (이 과정이 아래의 최종 결과물이 된다.)【상담 개요】
+학생의 학교 등교에 대한 부담감과 의무교육 유예 절차에 관한 논의가 이루어짐.
+
+【상담 내용】
+• 학생은 현재 학교 등교 자체를 힘들어하고 있으며, 학업 중단 숙려제 방식에도 부담을 느끼고 있음.
+• 학교 측에서는 유예 관련 공식 회의 이후 보호자에게 구체적인 절차를 다시 안내할 계획임.`;
+
+    assert.equal(
+        cleanConsultationSummaryOutput(raw),
+        `【상담 개요】
+학생의 학교 등교에 대한 부담감과 의무교육 유예 절차에 관한 논의가 이루어짐.
+
+【상담 내용】
+• 학생은 현재 학교 등교 자체를 힘들어하고 있으며, 학업 중단 숙려제 방식에도 부담을 느끼고 있음.
+• 학교 측에서는 유예 관련 공식 회의 이후 보호자에게 구체적인 절차를 다시 안내할 계획임.`,
+    );
+});
