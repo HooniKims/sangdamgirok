@@ -31,15 +31,41 @@ export function cleanConsultationSummaryOutput(text: string): string {
     const cleaned = cleanMetaInfo(text);
     if (!cleaned) return cleaned;
 
-    const firstSummarySection = cleaned.search(/【상담\s*개요】|【상담\s*내용】/);
-    if (firstSummarySection >= 0) {
-        return cleaned.slice(firstSummarySection).trim();
-    }
+    const finalOverviewSection = cleaned.lastIndexOf("【상담 개요】");
+    const finalContentSection = cleaned.lastIndexOf("【상담 내용】");
+    const summaryStart = finalOverviewSection >= 0 ? finalOverviewSection : finalContentSection;
+    const summaryOnly = summaryStart >= 0 ? cleaned.slice(summaryStart).trim() : cleaned;
 
-    const metaLinePattern = /^(?:요약\s*방식|규칙\s*준수|문체\s*변화|구조화|작성\s*방식|출력\s*형식|검토\s*결과|분석\s*결과)\s*[:：].*$/;
-    return cleaned
+    const metaLinePattern = /(?:요약\s*방식|규칙\s*준수|문체\s*변화|내용\s*구조화|내용구조화|구조화|작성\s*계획|작성계획|계획\s*검토|작성\s*방식|출력\s*형식|검토\s*결과|분석\s*결과)/;
+    const processListPattern = /^\s*(?:[-*]|\d+[.)])\s+/;
+    let isDroppingProcessBlock = false;
+
+    return summaryOnly
         .split(/\r?\n/)
-        .filter(line => !metaLinePattern.test(line.trim()))
+        .filter(line => {
+            const trimmed = line.trim();
+            if (!trimmed) {
+                isDroppingProcessBlock = false;
+                return true;
+            }
+
+            if (/^【상담\s*(?:개요|내용)】$/.test(trimmed)) {
+                isDroppingProcessBlock = false;
+                return true;
+            }
+
+            if (metaLinePattern.test(trimmed)) {
+                isDroppingProcessBlock = !/[.!?。]$/.test(trimmed);
+                return false;
+            }
+
+            if (isDroppingProcessBlock && processListPattern.test(trimmed)) {
+                return false;
+            }
+
+            isDroppingProcessBlock = false;
+            return true;
+        })
         .join("\n")
         .trim();
 }

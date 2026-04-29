@@ -496,7 +496,8 @@ http://localhost:3000
 - **문제**: AI 요약 결과에 실제 요약문 외에 `규칙 준수`, `문체 변화`, `구조화` 같은 작성 방식 설명이 함께 출력될 수 있었음.
 - **해결**:
   - `components/dashboard.tsx`: 상담 요약 프롬프트에 최종 결과만 출력하고, 첫 글자를 `【상담 개요】`로 시작하도록 명시.
-  - `components/dashboard.tsx`: 규칙 준수 여부, 문체 변화, 구조화 방식, 작성 방식, 분석 과정, 검토 결과를 출력하지 말라는 금지 규칙 추가.
-  - `utils/textProcessor.ts`: 상담 요약 전용 `cleanConsultationSummaryOutput` 후처리를 추가해 첫 상담 요약 섹션 전의 모델 작업 설명을 제거.
-  - `tests/text-processor.test.mjs`: 작업 방식 설명이 섞인 AI 응답에서도 실제 상담 요약 결과만 남는 회귀 테스트 추가.
+  - `components/dashboard.tsx`: 작성계획 검토, 내용구조화, 규칙 준수 여부, 문체 변화, 구조화 방식, 작성 방식, 분석 과정, 검토 결과를 출력하지 말라는 금지 규칙 추가.
+  - `utils/textProcessor.ts`: 상담 요약 전용 `cleanConsultationSummaryOutput` 후처리를 추가해 모델 작업 설명을 제거하고, 실제 최종 `【상담 개요】` 섹션부터 결과를 남기도록 강화.
+  - `tests/text-processor.test.mjs`: 작업 방식 설명, 섹션 내부의 작성계획/내용구조화 블록, 지시문 인용이 섞인 AI 응답에서도 실제 상담 요약 결과만 남는 회귀 테스트 추가.
   - `package.json`: 기본 `npm test`가 모든 `tests/*.test.mjs` 회귀 테스트를 실행하도록 변경.
+  - 실제 LM Studio 호출 테스트에서 원본 응답이 설명 문구로 시작해도 후처리 후 `【상담 개요】`부터 시작하는 최종 요약만 남는 것을 확인.

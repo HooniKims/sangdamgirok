@@ -62,3 +62,53 @@ test("consultation summary cleaner keeps an already clean summary unchanged", ()
 
     assert.equal(cleanConsultationSummaryOutput(summary), summary);
 });
+
+test("consultation summary cleaner removes process planning blocks inside summary sections", () => {
+    const { cleanConsultationSummaryOutput } = loadTextProcessor();
+    const raw = `【상담 개요】
+작성계획 검토
+- 원본 내용을 확인함
+- 상담 내용을 두 섹션으로 나누어 정리함
+진로 선택에 대한 상담.
+
+【상담 내용】
+내용구조화
+- 상담 주제와 학생 반응을 분리함
+• 학생이 진로 선택에 대한 부담을 표현함.
+내용 구조화: 원본 내용을 포멀한 문체로 정리함.
+• 희망 분야를 구체화하기 위한 추가 탐색이 필요함.`;
+
+    assert.equal(
+        cleanConsultationSummaryOutput(raw),
+        `【상담 개요】
+진로 선택에 대한 상담.
+
+【상담 내용】
+• 학생이 진로 선택에 대한 부담을 표현함.
+• 희망 분야를 구체화하기 위한 추가 탐색이 필요함.`,
+    );
+});
+
+test("consultation summary cleaner ignores quoted format rules before the final summary", () => {
+    const { cleanConsultationSummaryOutput } = loadTextProcessor();
+    const raw = `작성 계획 검토 및 실행 과정
+1. 출력 첫 글자는 반드시 "【상담 개요】"의 "【"여야 한다. (준수)
+2. 내용 분석 및 변환을 수행함.
+
+(Output Generation)【상담 개요】
+진로 선택에 대한 고민과 발표 상황에서의 자신감 부족 문제를 다룸.
+
+【상담 내용】
+• 학생이 진로 선택 과정에서 여러 관심 분야로 인해 결정을 어려워함.
+• 과학 탐구 활동에는 적극적으로 참여하나 발표 상황에서는 자신감 부족을 경험함.`;
+
+    assert.equal(
+        cleanConsultationSummaryOutput(raw),
+        `【상담 개요】
+진로 선택에 대한 고민과 발표 상황에서의 자신감 부족 문제를 다룸.
+
+【상담 내용】
+• 학생이 진로 선택 과정에서 여러 관심 분야로 인해 결정을 어려워함.
+• 과학 탐구 활동에는 적극적으로 참여하나 발표 상황에서는 자신감 부족을 경험함.`,
+    );
+});
