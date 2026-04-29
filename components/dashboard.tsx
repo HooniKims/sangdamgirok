@@ -29,7 +29,7 @@ import {
 } from "lucide-react"
 import { Consultation, TeacherProfile } from "@/types"
 import { generateWithRetry, AVAILABLE_MODELS, DEFAULT_MODEL, getModelOptionLabel } from "@/utils/localLlmClient"
-import { cleanMetaInfo } from "@/utils/textProcessor"
+import { cleanConsultationSummaryOutput, cleanMetaInfo } from "@/utils/textProcessor"
 import { buildEmailLockKey, normalizeEmail } from "@/utils/authLock"
 import { useTheme } from "@/components/ThemeProvider"
 import {
@@ -388,9 +388,11 @@ export default function Dashboard() {
     }) => {
         const systemMessage = `
 당신은 학교 교사의 학생 상담 기록을 정리하는 전문가입니다.
-다음 상담 내용을 포멀하고 공식적인 문체로 정돈하여 작성해주세요.
+다음 상담 내용을 포멀하고 공식적인 문체로 정돈한 최종 결과만 작성해주세요.
 
 [중요 규칙]
+• 출력 첫 글자는 반드시 "【상담 개요】"의 "【"여야 합니다
+• 규칙 준수 여부, 문체 변화, 구조화 방식, 작성 방식, 분석 과정, 검토 결과를 절대 쓰지 마세요
 • 마크다운 기호(##, **, -, * 등)를 절대 사용하지 마세요
 • "상담교사"라는 단어를 절대 사용하지 마세요 (일반 교사의 상담임)
 • 원본에 없는 내용을 절대 만들어 내지 마세요
@@ -415,7 +417,7 @@ export default function Dashboard() {
 주제: ${topic}
 내용: ${content}
 
-위 형식대로 간결하게 정리해주세요:`
+다른 설명 없이 "【상담 개요】"로 바로 시작해 위 두 섹션의 최종 요약 결과만 작성해주세요:`
 
         const rawResult = await generateWithRetry({
             systemMessage,
@@ -423,7 +425,7 @@ export default function Dashboard() {
             model: selectedModel,
         })
 
-        return cleanMetaInfo(rawResult)
+        return cleanConsultationSummaryOutput(rawResult)
     }
 
     const handleSummarize = async () => {

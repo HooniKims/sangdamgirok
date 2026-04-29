@@ -24,6 +24,26 @@ export function cleanMetaInfo(text: string): string {
     return cleaned.trim();
 }
 
+/**
+ * 상담 AI 요약에서는 모델의 작업 설명이 아니라 최종 요약 결과만 보여줍니다.
+ */
+export function cleanConsultationSummaryOutput(text: string): string {
+    const cleaned = cleanMetaInfo(text);
+    if (!cleaned) return cleaned;
+
+    const firstSummarySection = cleaned.search(/【상담\s*개요】|【상담\s*내용】/);
+    if (firstSummarySection >= 0) {
+        return cleaned.slice(firstSummarySection).trim();
+    }
+
+    const metaLinePattern = /^(?:요약\s*방식|규칙\s*준수|문체\s*변화|구조화|작성\s*방식|출력\s*형식|검토\s*결과|분석\s*결과)\s*[:：].*$/;
+    return cleaned
+        .split(/\r?\n/)
+        .filter(line => !metaLinePattern.test(line.trim()))
+        .join("\n")
+        .trim();
+}
+
 function isCompleteSentence(text: string): boolean {
     if (!text) return false;
     return /[함음임됨봄옴줌춤움늠름다요까니][.!?]\s*$/.test(text.trim());
