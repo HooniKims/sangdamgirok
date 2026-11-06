@@ -1,5 +1,5 @@
 // ===== LM Studio 로컬 LLM 설정 =====
-export const LOCAL_LLM_CHAT_COMPLETIONS_ENDPOINT = "https://lm.alluser.site/v1/chat/completions";
+export const LOCAL_LLM_CHAT_COMPLETIONS_ENDPOINT = "https://lm.alluser.kr/v1/chat/completions";
 const LOCAL_LLM_API_KEY = process.env.NEXT_PUBLIC_OLLAMA_API_KEY || "";
 
 // ===== 사용 가능한 모델 목록 =====
