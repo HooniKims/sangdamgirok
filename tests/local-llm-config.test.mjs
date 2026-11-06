@@ -114,6 +114,7 @@ test("local LLM API key stays on the server", () => {
     const route = readFileSync(routePath, "utf8");
     assert.match(route, /process\.env\.LOCAL_LLM_API_KEY/);
     assert.match(route, /verifyIdToken/);
+    assert.match(route, /preferredRegion = "icn1"/);
     assert.match(route, /ALLOWED_REQUEST_MODELS/);
     assert.equal(route.includes("NEXT_PUBLIC_"), false, "서버 프록시는 공개 환경변수를 쓰면 안 됩니다.");
 });
