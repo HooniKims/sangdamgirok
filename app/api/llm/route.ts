@@ -8,6 +8,8 @@ import { AVAILABLE_MODELS, LOCAL_LLM_CHAT_COMPLETIONS_ENDPOINT } from "@/utils/l
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
+// LM Studio 서버는 한국 외 지역(Vercel 기본 iad1)에서 TCP 연결이 되지 않으므로 서울 리전에서 실행합니다.
+export const preferredRegion = "icn1"
 
 const ALLOWED_REQUEST_MODELS = new Set<string>(AVAILABLE_MODELS.map(model => model.requestModel))
 const ALLOWED_ROLES = new Set(["system", "user", "assistant"])
