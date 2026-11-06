@@ -58,7 +58,7 @@ test("local LLM client exposes only the approved LM Studio model contract", () =
         "허용된 3개 모델만 남아 있어야 합니다.",
     );
     assert.match(source, /export const DEFAULT_MODEL = "gemma4:e2b"/);
-    assert.match(source, /LOCAL_LLM_CHAT_COMPLETIONS_ENDPOINT = "https:\/\/lm\.alluser\.site\/v1\/chat\/completions"/);
+    assert.match(source, /LOCAL_LLM_CHAT_COMPLETIONS_ENDPOINT = "https:\/\/lm\.alluser\.kr\/v1\/chat\/completions"/);
     assert.match(source, /model: modelConfig\.requestModel/);
     assert.match(source, /reasoning_effort: "none"/);
     assert.match(source, /stream/);
