@@ -85,6 +85,7 @@ test("production source does not keep old OpenAI or proxy markers", () => {
         "OpenAI API " + "key",
         "api." + "alluser.site",
         "gemma4:" + "26b",
+        "NEXT_PUBLIC_" + "OLLAMA_API_KEY",
     ];
 
     for (const filePath of productionFiles) {
@@ -99,4 +100,20 @@ test("OpenAI package dependency is not installed for local-only generation", () 
     const packageJson = JSON.parse(readSource("package.json"));
     assert.equal(packageJson.dependencies?.openai, undefined);
     assert.equal(packageJson.devDependencies?.openai, undefined);
+});
+
+test("local LLM API key stays on the server", () => {
+    const client = readSource("utils/localLlmClient.ts");
+    assert.equal(client.includes("X-API-Key"), false, "브라우저 코드에 X-API-Key 헤더가 있으면 안 됩니다.");
+    assert.equal(/process\.env\.NEXT_PUBLIC_[A-Z_]*API_KEY/.test(client), false, "브라우저 코드에 API 키 환경변수가 있으면 안 됩니다.");
+    assert.match(client, /LOCAL_LLM_PROXY_ENDPOINT = "\/api\/llm"/);
+    assert.match(client, /Authorization/);
+
+    const routePath = join(repoRoot, "app", "api", "llm", "route.ts");
+    assert.equal(existsSync(routePath), true, "app/api/llm/route.ts 서버 프록시가 있어야 합니다.");
+    const route = readFileSync(routePath, "utf8");
+    assert.match(route, /process\.env\.LOCAL_LLM_API_KEY/);
+    assert.match(route, /verifyIdToken/);
+    assert.match(route, /ALLOWED_REQUEST_MODELS/);
+    assert.equal(route.includes("NEXT_PUBLIC_"), false, "서버 프록시는 공개 환경변수를 쓰면 안 됩니다.");
 });
