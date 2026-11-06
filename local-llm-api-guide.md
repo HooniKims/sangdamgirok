@@ -6,8 +6,8 @@
 
 | 항목 | 값 |
 |------|-----|
-| base URL | `https://lm.alluser.site` |
-| chat completions endpoint | `https://lm.alluser.site/v1/chat/completions` |
+| base URL | `https://lm.alluser.kr` |
+| chat completions endpoint | `https://lm.alluser.kr/v1/chat/completions` |
 | 인증 헤더 | `X-API-Key` |
 
 인증 키는 기존 로컬 LLM 키 환경변수인 `NEXT_PUBLIC_OLLAMA_API_KEY` 값을 그대로 사용합니다. 새 키 값을 만들거나 별도의 OpenAI 키 입력 흐름을 추가하지 않습니다.
@@ -68,7 +68,7 @@ const content = await generateWithRetry({
 
 - 허용된 3개 모델만 남아 있는지
 - 표시 ID와 실제 요청 model 매핑이 맞는지
-- endpoint가 `https://lm.alluser.site/v1/chat/completions`로 고정되어 있는지
+- endpoint가 `https://lm.alluser.kr/v1/chat/completions`로 고정되어 있는지
 - 기본 선택값이 `gemma4:e2b`인지
 - production source에 이전 OpenAI/API proxy 관련 금지 문자열이 남아 있지 않은지
 - `openai` 패키지 의존성이 제거되어 있는지
