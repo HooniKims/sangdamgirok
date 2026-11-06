@@ -1,6 +1,7 @@
 // ===== LM Studio 로컬 LLM 설정 =====
 export const LOCAL_LLM_CHAT_COMPLETIONS_ENDPOINT = "https://lm.alluser.kr/v1/chat/completions";
-const LOCAL_LLM_API_KEY = process.env.NEXT_PUBLIC_OLLAMA_API_KEY || "";
+// 브라우저는 서버 프록시(/api/llm)만 호출합니다. API 키는 서버 환경변수(LOCAL_LLM_API_KEY)에만 있습니다.
+const LOCAL_LLM_PROXY_ENDPOINT = "/api/llm";
 
 // ===== 사용 가능한 모델 목록 =====
 export const AVAILABLE_MODELS = [
@@ -42,7 +43,7 @@ export function getModelOptionLabel(model: Pick<LocalModelConfig, "name" | "desc
 }
 
 /**
- * LM Studio 로컬 LLM API 1회 호출
+ * LM Studio 로컬 LLM API 1회 호출 (서버 프록시 /api/llm 경유)
  *
  * @param systemMessage - 시스템 프롬프트
  * @param userPrompt    - 사용자 프롬프트
@@ -63,11 +64,15 @@ export async function callLocalLlmAPI(
         "Content-Type": "application/json",
     };
 
-    if (LOCAL_LLM_API_KEY) {
-        headers["X-API-Key"] = LOCAL_LLM_API_KEY;
+    // 로그인한 사용자의 Firebase ID 토큰으로 서버 프록시를 호출합니다.
+    const { auth } = await import("@/lib/firebase");
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        throw new Error("로그인이 필요합니다. 다시 로그인해주세요.");
     }
+    headers["Authorization"] = `Bearer ${await currentUser.getIdToken()}`;
 
-    const res = await fetch(LOCAL_LLM_CHAT_COMPLETIONS_ENDPOINT, {
+    const res = await fetch(LOCAL_LLM_PROXY_ENDPOINT, {
         method: "POST",
         headers,
         body: JSON.stringify({
