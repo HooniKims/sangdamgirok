@@ -485,7 +485,7 @@ http://localhost:3000
 - **문제**: 이전 로컬 LLM 모델 목록과 프록시 주소가 남아 있어, 현재 운영 기준인 LM Studio 3개 모델 전용 구조와 맞지 않았음.
 - **해결**:
   - `utils/ollamaClient.ts`를 제거하고 `utils/localLlmClient.ts`로 교체.
-  - 모든 AI 요청 endpoint를 `https://lm.alluser.site/v1/chat/completions`로 고정.
+  - 모든 AI 요청 endpoint를 `https://lm.alluser.kr/v1/chat/completions`로 고정.
   - 모델 목록을 `gemma4:e4b`, `gemma4:e2b`, `lmstudio:gemma-4-26b-a4b-it-q4ks` 3개만 남기고, 실제 요청 model을 각각 `google/gemma-4-e4b`, `google/gemma-4-e2b`, `gemma-4-26b-a4b-it`로 매핑.
   - 기본 선택 모델을 `gemma4:e4b`로 고정하고, 공통 `getModelOptionLabel()` 헬퍼로 드롭다운 라벨을 통일.
   - 요청 body에 `max_tokens`, `reasoning_effort: "none"`, `stream: false` 기본 흐름을 반영.
